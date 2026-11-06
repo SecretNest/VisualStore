@@ -120,3 +120,26 @@ def test_vacuum_waits_for_an_idle_job_table(world):
     jobs_db.enqueue(conn, type="scan", kind="io", priority=50)
     busy = run_maintenance(ctx_for(reg, **{"maintenance.vacuum_free_ratio": 0.0}))
     assert busy["vacuumed"] is False and busy["vacuum_skipped"] == "busy"
+
+
+def test_maintenance_prunes_finished_jobs_past_their_retention(world):
+    """Audit B1: the job table is not an archive."""
+    reg, conn, add = world
+    old_done = jobs_db.enqueue(conn, type="ping", kind="compute")
+    old_failed = jobs_db.enqueue(conn, type="ping", kind="compute")
+    recent = jobs_db.enqueue(conn, type="ping", kind="compute")
+    queued = jobs_db.enqueue(conn, type="ping", kind="compute")
+    for j in (old_done, old_failed, recent):
+        jobs_db.mark_running(conn, j)
+    jobs_db.mark_done(conn, old_done)
+    jobs_db.mark_done(conn, recent)
+    jobs_db.mark_failed(conn, old_failed, "x")
+    with conn:
+        conn.execute(
+            "UPDATE job SET finished_at = '2020-01-01T00:00:00+00:00' WHERE id IN (?, ?)",
+            (old_done, old_failed),
+        )
+    result = run_maintenance(ctx_for(reg))
+    assert result["jobs_pruned"] == 2
+    assert jobs_db.get(conn, old_done) is None and jobs_db.get(conn, old_failed) is None
+    assert jobs_db.get(conn, recent) is not None and jobs_db.get(conn, queued) is not None

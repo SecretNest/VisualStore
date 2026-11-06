@@ -227,3 +227,64 @@ def test_vector_pairs_of_another_model_do_not_form_groups(world):
     assert g is not None and g["member_count"] == 2
     assert groups.group_of_file(conn, c) is None
     assert len(pairs.pairs_of_file(conn, c)) == 1  # the stale pair row itself is kept
+
+
+def test_dirty_marks_survive_a_failed_regroup(world, monkeypatch):
+    """Audit B7: seeds are consumed only once their groups are written."""
+    reg, conn, f = world
+    a, b = add(conn, f["arch"], "a.jpg"), add(conn, f["inbox"], "b.jpg")
+    connect(conn, a, b)
+    monkeypatch.setattr(
+        groups,
+        "replace_groups",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+    )
+    with pytest.raises(RuntimeError):
+        run_regroup(ctx_for(reg, **AUTO_OFF))
+    assert groups.dirty_count(conn) == 2
+
+
+def test_a_closure_larger_than_the_sql_variable_limit_regroups(world):
+    """Audit B7: 17 000 byte-identical placeholders in one bucket."""
+    reg, conn, f = world
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    ids = [bytes([i % 256, i // 256]) + b"\\x00" * 14 for i in range(17_000)]
+    with conn:
+        conn.executemany(
+            "INSERT INTO file (id, folder_id, directory, name, extension_id, size, mtime, sha1, state, created_at)"
+            " VALUES (?, ?, '', ?, ?, 1, 1, ?, 'fingerprinted', '2026-01-01T00:00:00+00:00')",
+            [(fid, f["inbox"], f"p{i}.jpg", ext, SHA) for i, fid in enumerate(ids)],
+        )
+        conn.executemany(
+            "INSERT INTO pair (file_a, file_b, distance, source) VALUES (?, ?, 0.0, 'sha1')",
+            [(min(ids[0], other), max(ids[0], other)) for other in ids[1:]],
+        )
+    groups.mark_dirty(conn, ids)
+    result = run_regroup(ctx_for(reg, **AUTO_OFF))
+    assert result["groups"] >= 1 and groups.dirty_count(conn) == 0
+    assert groups.group_of_file(conn, ids[123])["member_count"] == 17_000
+    assert groups.count_by_status(conn).get("open") == 1
+
+
+def test_group_ids_and_open_decisions_survive_a_regroup_that_changes_nothing(world):
+    """Audit B8: confirmations racing a regroup are not dropped."""
+    reg, conn, f = world
+    a, b, c = (
+        add(conn, f["inbox"], "a.jpg"),
+        add(conn, f["inbox"], "b.jpg"),
+        add(conn, f["arch"], "c.jpg", b"\\x09" * 20),
+    )
+    connect(conn, a, b)
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    g = groups.group_of_file(conn, a)
+    groups.set_decisions(
+        conn, g["id"], {a: "delete", b: "keep"}
+    )  # the user's choice, apply_action pending
+    groups.mark_dirty(conn, [a, c])  # a match touched a: its component is recomputed unchanged
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    again = groups.group_of_file(conn, a)
+    assert again["id"] == g["id"]
+    assert {m["file_id"]: m["decision"] for m in groups.members(conn, again["id"])} == {
+        a: "delete",
+        b: "keep",
+    }

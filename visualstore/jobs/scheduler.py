@@ -22,7 +22,7 @@ from visualstore.db import settings as settings_db
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import HANDLERS as COMPUTE_HANDLERS
 from visualstore.jobs.compute.protocol import ComputeMessage, ComputeRequest
-from visualstore.jobs.results import RESULT_SINKS, SinkContext
+from visualstore.jobs.results import RESULT_SINKS, SinkContext, compact_params, compact_result
 from visualstore.profiles import ProfileNotFound, ProfilePaths, ProfileRegistry
 
 log = logging.getLogger(__name__)
@@ -93,6 +93,8 @@ class Scheduler:
         self._loop_task: asyncio.Task | None = None
         self._last_plan: float | None = None
         self.last_tick: float | None = None  # monotonic time of the last completed tick
+        self._dead_pending: set[int] = set()
+        self._dead_seen: set[int] = set()
 
     # -- lifecycle ---------------------------------------------------------------------
 
@@ -197,7 +199,12 @@ class Scheduler:
             )
 
     def _drain_pool(self) -> None:
+        # Messages first: a child's "started" (its pid) may arrive in the same tick as its
+        # death, and the pid is what links the death to the job (audit B9).
+        self._drain_messages()
         self._fail_jobs_of_dead_children()
+
+    def _drain_messages(self) -> None:
         for msg in self.pool.poll():
             profile = self.in_flight.get(msg.job_id)
             if profile is None:
@@ -227,12 +234,15 @@ class Scheduler:
     def _fail_jobs_of_dead_children(self) -> None:
         """A child that died (OOM, crash) never answers; count the attempt and move on.
         The pool has already respawned the child, so the slot is usable again."""
-        dead = set(self.pool.reap())
+        dead = set(self.pool.reap()) | self._dead_pending
+        self._dead_pending = set()
         if not dead:
             return
+        matched: set[int] = set()
         for job_id, pid in list(self.in_flight_pid.items()):
             if pid not in dead:
                 continue
+            matched.add(pid)
             profile = self.in_flight.get(job_id)
             self._forget(job_id)
             log.warning("compute worker %d died while running job %s", pid, job_id)
@@ -243,6 +253,10 @@ class Scheduler:
             except ProfileNotFound:
                 continue
             jobs_db.record_failure(conn, id_from_str(job_id), f"compute worker died (pid {pid})")
+        # A death whose job has not announced its pid yet is matched on the next tick; after
+        # that the pid may belong to a respawned child, so it is dropped.
+        self._dead_pending = {p for p in dead - matched if p not in self._dead_seen}
+        self._dead_seen = dead - matched
 
     def _finish(self, conn: sqlite3.Connection, job_id: bytes, result: dict, profile: str) -> None:
         row = jobs_db.get(conn, job_id)
@@ -269,8 +283,12 @@ class Scheduler:
                 jobs_db.record_failure(conn, job_id, f"result sink: {type(exc).__name__}: {exc}")
                 return
         progress = json.loads(row["progress"])
-        progress["result"] = result
+        progress["result"] = compact_result(row["type"], result)
         jobs_db.set_progress(conn, job_id, progress)
+        params = json.loads(row["params"])
+        compact = compact_params(row["type"], params)
+        if compact is not params:
+            jobs_db.update_params(conn, job_id, compact)
         jobs_db.mark_done(conn, job_id)
 
     # -- io ----------------------------------------------------------------------------

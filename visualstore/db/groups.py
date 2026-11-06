@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from visualstore.clock import now_iso
+from visualstore.db.util import chunked
 from visualstore.ids import id_to_str, new_id
 
 STATUSES = ("open", "auto_resolved", "resolved", "dismissed")
@@ -19,6 +20,7 @@ class NewGroup:
     has_identical: bool
     status: str
     decisions: dict[bytes, str]
+    reuse_id: bytes | None = None  # the existing group with this member set keeps its id
 
 
 # -- dirty queue -------------------------------------------------------------------------
@@ -31,11 +33,19 @@ def mark_dirty(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:
         )
 
 
-def pop_dirty(conn: sqlite3.Connection, limit: int = 5000) -> list[bytes]:
+def peek_dirty(conn: sqlite3.Connection, limit: int = 5000) -> list[bytes]:
     rows = conn.execute("SELECT file_id FROM regroup_queue LIMIT ?", (limit,)).fetchall()
-    ids = [bytes(r["file_id"]) for r in rows]
+    return [bytes(r["file_id"]) for r in rows]
+
+
+def clear_dirty(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:
     with conn:
-        conn.executemany("DELETE FROM regroup_queue WHERE file_id = ?", [(f,) for f in ids])
+        conn.executemany("DELETE FROM regroup_queue WHERE file_id = ?", [(f,) for f in file_ids])
+
+
+def pop_dirty(conn: sqlite3.Connection, limit: int = 5000) -> list[bytes]:
+    ids = peek_dirty(conn, limit)
+    clear_dirty(conn, ids)
     return ids
 
 
@@ -75,6 +85,13 @@ def members(conn: sqlite3.Connection, group_id: bytes) -> list[sqlite3.Row]:
 
 
 def member_file_ids(conn: sqlite3.Connection, group_ids: Iterable[bytes]) -> list[bytes]:
+    out: list[bytes] = []
+    for chunk in chunked(list(group_ids)):
+        out.extend(_member_file_ids_chunk(conn, chunk))
+    return out
+
+
+def _member_file_ids_chunk(conn: sqlite3.Connection, group_ids: list[bytes]) -> list[bytes]:
     ids = list(group_ids)
     if not ids:
         return []
@@ -90,23 +107,43 @@ def replace_groups(
 ) -> list[bytes]:
     created: list[bytes] = []
     now = now_iso()
+    kept = {ng.reuse_id for ng in new_groups if ng.reuse_id is not None}
     with conn:
-        conn.executemany("DELETE FROM file_group WHERE id = ?", [(g,) for g in remove_group_ids])
+        conn.executemany(
+            "DELETE FROM file_group WHERE id = ?",
+            [(g,) for g in remove_group_ids if g not in kept],
+        )
         for ng in new_groups:
-            gid = new_id()
-            conn.execute(
-                "INSERT INTO file_group"
-                " (id, member_count, min_distance, has_identical, status, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    gid,
-                    len(ng.members),
-                    ng.min_distance,
-                    1 if ng.has_identical else 0,
-                    ng.status,
-                    now,
-                ),
-            )
+            if ng.reuse_id is not None:  # same member set as before: the id (and links) stay
+                gid = ng.reuse_id
+                conn.execute(
+                    "UPDATE file_group SET member_count = ?, min_distance = ?, has_identical = ?,"
+                    " status = ?, updated_at = ? WHERE id = ?",
+                    (
+                        len(ng.members),
+                        ng.min_distance,
+                        1 if ng.has_identical else 0,
+                        ng.status,
+                        now,
+                        gid,
+                    ),
+                )
+                conn.execute("DELETE FROM file_group_member WHERE group_id = ?", (gid,))
+            else:
+                gid = new_id()
+                conn.execute(
+                    "INSERT INTO file_group"
+                    " (id, member_count, min_distance, has_identical, status, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        gid,
+                        len(ng.members),
+                        ng.min_distance,
+                        1 if ng.has_identical else 0,
+                        ng.status,
+                        now,
+                    ),
+                )
             conn.executemany(
                 "INSERT INTO file_group_member (group_id, file_id, decision) VALUES (?, ?, ?)",
                 [(gid, f, ng.decisions.get(f, "undecided")) for f in sorted(ng.members)],

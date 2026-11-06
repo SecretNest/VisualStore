@@ -18,6 +18,19 @@ class CreateJob(BaseModel):
     priority: int = PRIORITY_USER
 
 
+# Jobs an operator may start by hand. Compute jobs and file actions take paths and ids in
+# their params and are only ever created by the server itself (audit B3).
+OPERATOR_JOB_TYPES = {
+    "backup",
+    "scan",
+    "regroup",
+    "purge_trash",
+    "maintenance",
+    "rebuild_index",
+    "ping",
+}
+
+
 def _job_or_404(conn, job_id: str):
     try:
         raw = uuid.UUID(job_id).bytes
@@ -46,7 +59,7 @@ async def list_jobs(
 @router.post("", status_code=201)
 async def create_job(body: CreateJob, request: Request, name: str = Depends(get_profile)) -> dict:
     kind = KIND_OF.get(body.type)
-    if kind is None:
+    if kind is None or body.type not in OPERATOR_JOB_TYPES:
         raise HTTPException(status_code=400, detail=f"Unknown job type '{body.type}'.")
     conn = get_state(request).registry.conn(name)
     job_id = jobs_db.enqueue(

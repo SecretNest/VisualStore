@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Iterable
 
 from visualstore.clock import now_iso
+from visualstore.db.util import chunked
 from visualstore.ids import id_to_str
 
 JUDGMENTS = ("none", "related_keep", "unrelated")
@@ -64,13 +65,21 @@ def edges_touching(
     ids = list(file_ids)
     if not ids:
         return []
-    marks = ",".join("?" * len(ids))
-    sql = f"SELECT * FROM pair WHERE (file_a IN ({marks}) OR file_b IN ({marks}))"
-    args: list = [*ids, *ids]
-    if model_id is not None:
-        sql += " AND (source != 'vector' OR model_id = ?)"
-        args.append(model_id)
-    return conn.execute(sql, args).fetchall()
+    seen: set[tuple[bytes, bytes]] = set()
+    out: list[sqlite3.Row] = []
+    for chunk in chunked(ids, 400):  # two variables per id: stay under the SQL limit
+        marks = ",".join("?" * len(chunk))
+        sql = f"SELECT * FROM pair WHERE (file_a IN ({marks}) OR file_b IN ({marks}))"
+        args: list = [*chunk, *chunk]
+        if model_id is not None:
+            sql += " AND (source != 'vector' OR model_id = ?)"
+            args.append(model_id)
+        for row in conn.execute(sql, args):
+            key = (bytes(row["file_a"]), bytes(row["file_b"]))
+            if key not in seen:
+                seen.add(key)
+                out.append(row)
+    return out
 
 
 def inner_pairs(conn: sqlite3.Connection, member_ids: set[bytes]) -> list[sqlite3.Row]:

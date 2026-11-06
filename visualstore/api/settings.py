@@ -48,6 +48,11 @@ async def put_setting(
 ) -> dict:
     state = get_state(request)
     conn = state.registry.conn(name)
+    if key == "model.id":
+        raise HTTPException(
+            status_code=400,
+            detail="Change the model with POST /model-switch, which also queues the vectors.",
+        )
     if key == "index.pca_dims":
         _check_pca_dims(conn, body.value, state.config.model_dir)
     try:

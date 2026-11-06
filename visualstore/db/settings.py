@@ -28,6 +28,28 @@ DEFAULTS: dict[str, Any] = {
     "index.quantization": "f16",  # f16 | i8 (ADR-0008)
     "index.pca_dims": 0,  # 0 = off; otherwise the index dimension after PCA
     "maintenance.vacuum_free_ratio": 0.2,
+    "jobs.keep_days": 7,  # done/cancelled jobs are forgotten after this; failed ones after 4x
+}
+
+_MAXIMA: dict[str, float] = {  # sanity ceilings (audit B14); the UI edits these freely
+    "backup.metadata.keep": 1000,
+    "backup.vectors.keep": 1000,
+    "backup.metadata.interval_hours": 24 * 365,
+    "backup.vectors.interval_hours": 24 * 365,
+    "trash.retention_days": 3650,
+    "scan.interval_hours": 24 * 365,
+    "grouping.group_distance": 2.0,
+    "similarity.candidate_distance": 2.0,
+    "similarity.near_duplicate": 2.0,
+    "similarity.variant": 2.0,
+    "similarity.top_k": 1024,
+    "media.max_pixels": 1_000_000_000,
+    "bulk.confirm_threshold": 1_000_000,
+    "frames.max_per_file": 64,
+    "media.ffmpeg_timeout_s": 3600,
+    "index.pca_dims": 4096,
+    "maintenance.vacuum_free_ratio": 1.0,
+    "jobs.keep_days": 3650,
 }
 
 _AT_LEAST_ONE = {
@@ -38,6 +60,7 @@ _AT_LEAST_ONE = {
     "media.max_pixels",
     "frames.max_per_file",
     "media.ffmpeg_timeout_s",
+    "jobs.keep_days",
 }
 
 
@@ -63,6 +86,8 @@ def set(conn: sqlite3.Connection, key: str, value: Any) -> None:  # noqa: A001 -
         minimum = 1 if key in _AT_LEAST_ONE else 0
         if value < minimum:
             raise ValueError(f"setting {key!r} must be >= {minimum}")
+        if key in _MAXIMA and value > _MAXIMA[key]:
+            raise ValueError(f"setting {key!r} must be <= {_MAXIMA[key]}")
     with conn:
         conn.execute(
             "INSERT INTO setting (key, value) VALUES (?, ?)"

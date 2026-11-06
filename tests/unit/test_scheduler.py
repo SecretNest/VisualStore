@@ -234,3 +234,55 @@ async def test_tick_records_a_heartbeat(registry, pool):
     assert sched.last_tick is None and sched.heartbeat_age() is None
     await sched.tick()
     assert sched.last_tick is not None and sched.heartbeat_age() < 1.0
+
+
+async def test_bulky_compute_payloads_are_compacted_when_the_job_finishes(
+    registry, scheduler, pool
+):
+    """Audit B1: results and params with vectors/thumbnails must not live in the job table."""
+    import json
+
+    conn = registry.conn("a")
+    entries = [{"seq": i, "vector": "A" * 1400} for i in range(64)]
+    job_id = jobs_db.enqueue(
+        conn,
+        type="match",
+        kind="compute",
+        params={"model": {"id": "other", "dim": 4}, "entries": entries, "remove": []},
+    )
+    await scheduler.tick()
+    req = pool.submitted[0]
+    hits = [[1, 2, 0.1]] * 5000
+    pool.messages.append(
+        ComputeMessage(
+            req.job_id, "a", "result", {"hits": hits, "added": 64, "removed": 0, "count": 64}
+        )
+    )
+    await scheduler.tick()
+    row = jobs_db.get(conn, job_id)
+    assert row["state"] == "done"
+    assert json.loads(row["progress"])["result"] == {
+        "hits": 5000,
+        "added": 64,
+        "removed": 0,
+        "count": 64,
+    }
+    assert json.loads(row["params"])["entries"] == 64  # the vectors are gone, the count stays
+    assert len(row["params"]) < 500 and len(row["progress"]) < 500
+
+
+async def test_child_dying_in_the_same_tick_as_its_start_message_frees_the_slot(
+    registry, scheduler, pool
+):
+    """Audit B9."""
+    conn = registry.conn("a")
+    job_id = jobs_db.enqueue(conn, type="ping", kind="compute")
+    await scheduler.tick()
+    req = pool.submitted[0]
+    pool.messages.append(ComputeMessage(req.job_id, "a", "started", {"pid": 7}))
+    pool.dead.append(7)  # reaped in the same tick that delivers the started message
+    await scheduler.tick()
+    row = jobs_db.get(conn, job_id)
+    assert row["attempts"] == 1 and "died" in row["error"]
+    assert scheduler.in_flight == {} or row["state"] == "running"  # re-dispatched or free
+    assert req.job_id not in scheduler.in_flight_pid or scheduler.in_flight_pid[req.job_id] != 7

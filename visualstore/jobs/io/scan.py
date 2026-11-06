@@ -42,12 +42,27 @@ def _abs(folder_path: str, directory: str, name: str) -> str:
     return os.path.join(folder_path, name)
 
 
+def _utf8(name: str) -> bool:
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:  # surrogate-escaped bytes: not representable in the database
+        return False
+    return True
+
+
 def walk(
     folder_path: str,
     extensions: dict,
     ignored: list[tuple[str, bool]],
     report: Callable[[dict], None],
+    stats: dict | None = None,
 ) -> list[DiskEntry]:
+    """List the media files under a Folder. `stats` (when given) receives `listing_errors`
+    (directories that could not be read: the caller must not treat their files as missing)
+    and `skipped_names` (names that are not valid UTF-8)."""
+    stats = stats if stats is not None else {}
+    stats.setdefault("listing_errors", 0)
+    stats.setdefault("skipped_names", 0)
     out: list[DiskEntry] = []
     stack = [""]
     while stack:
@@ -59,8 +74,12 @@ def walk(
             with os.scandir(abs_dir) as it:
                 entries = list(it)
         except OSError:
+            stats["listing_errors"] += 1
             continue
         for entry in entries:
+            if not _utf8(entry.name):
+                stats["skipped_names"] += 1
+                continue
             if entry.is_dir(follow_symlinks=False):
                 stack.append(f"{rel_dir}/{entry.name}" if rel_dir else entry.name)
                 continue
@@ -69,7 +88,10 @@ def walk(
             _, dot, ext = entry.name.rpartition(".")
             if not dot or ext.lower() not in extensions:
                 continue
-            st = entry.stat(follow_symlinks=False)
+            try:
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue  # vanished between the listing and the stat
             out.append(DiskEntry(rel_dir, entry.name, ext.lower(), st.st_size, st.st_mtime_ns))
             if len(out) % 1000 == 0:
                 report({"done": len(out), "total": 0, "message": f"listed {len(out)} files"})
@@ -77,6 +99,8 @@ def walk(
 
 
 def run_scan(ctx: IoContext) -> dict:
+    from visualstore.jobs.io.model_switch import queue_missing_vectors  # imports scan helpers
+
     folder_id = id_from_str(ctx.params["folder_id"])
     with closing(ctx.open_metadata()) as conn:
         folder = folders_db.get_folder(conn, folder_id)
@@ -90,7 +114,8 @@ def run_scan(ctx: IoContext) -> dict:
         ]
         _check_root(folder["path"])
         model = _resolve_model(ctx)
-        disk = walk(folder["path"], extensions, ignored, ctx.report)
+        walk_stats: dict = {}
+        disk = walk(folder["path"], extensions, ignored, ctx.report, walk_stats)
         db_rows = files_db.list_files_in_folder(conn, folder_id)
         if db_rows and not disk:
             raise ScanError(
@@ -153,6 +178,10 @@ def run_scan(ctx: IoContext) -> dict:
                 moved_ids.add(old_id)
 
         to_delete = [f.id for f in plan.missing if f.id not in moved_ids]
+        if walk_stats["listing_errors"]:
+            # Part of the tree could not be read: its files are not missing, they are unknown.
+            # Keep every row; the next scan that reads everything decides (audit B5).
+            to_delete = []
         files_db.delete_files(conn, to_delete)
         gone_vectors = to_delete + [fid for fid, _ in plan.changed]
         if gone_vectors:
@@ -164,6 +193,12 @@ def run_scan(ctx: IoContext) -> dict:
         default_priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
         priority = int(ctx.params.get("priority") or default_priority)
         jobs = _enqueue_fingerprints(conn, folder, priority, ctx, model)
+        # Files that are fingerprinted (hash known) but have no vectors for the active model:
+        # imported from v1, restored, or left over from a failed batch (audit B2).
+        with closing(ctx.open_vectors()) as vconn:
+            vector_files, vector_jobs = queue_missing_vectors(
+                conn, vconn, ctx.settings, ctx.model_dir, folder_id=folder_id
+            )
         return {
             "inserted": len(plan.insert) - len(moved_ids),
             "changed": len(plan.changed),
@@ -172,7 +207,10 @@ def run_scan(ctx: IoContext) -> dict:
             "deleted": len(to_delete),
             "renamed": len(plan.renamed),
             "collisions": len(plan.collisions),
-            "fingerprint_jobs": jobs,
+            "listing_errors": walk_stats["listing_errors"],
+            "skipped_names": walk_stats["skipped_names"],
+            "fingerprint_jobs": jobs + vector_jobs,
+            "vector_files_queued": vector_files,
         }
 
 
@@ -200,7 +238,12 @@ def _resolve_model(ctx: IoContext) -> dict:
 def _enqueue_fingerprints(conn, folder, priority: int, ctx: IoContext, model: dict) -> int:
     extensions = {bytes(r["id"]): r["media_type"] for r in folders_db.list_extensions(conn)}
     max_pixels = int(ctx.settings["media.max_pixels"])
-    pending = files_db.files_by_state(conn, "new", bytes(folder["id"]), limit=1_000_000)
+    waiting = jobs_db.active_jobs_for_files(conn, "fingerprint")  # already queued: never twice
+    new_files = files_db.files_by_state(conn, "new", bytes(folder["id"]), limit=1_000_000)
+    pending = [r for r in new_files if id_to_str(r["id"]) not in waiting]
+    already = {waiting[id_to_str(r["id"])] for r in new_files if id_to_str(r["id"]) in waiting}
+    if already:  # a manual scan lifts the jobs that already hold this Folder's files
+        jobs_db.raise_priority(conn, already, priority)
     count = 0
     for start in range(0, len(pending), FINGERPRINT_BATCH):
         batch = pending[start : start + FINGERPRINT_BATCH]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -32,17 +34,30 @@ class BulkExecute(BulkFilter):
     confirm: int | None = None
 
 
-def _plan(conn, body: BulkFilter) -> BulkPlan:
+async def _plan(state, name: str, body: BulkFilter) -> BulkPlan:
+    """Planning walks every open group: it runs in a thread on its own connection so a large
+    queue does not freeze the event loop (audit B13)."""
     if body.band is not None and body.band not in BANDS:
         raise HTTPException(status_code=400, detail=f"band must be one of {BANDS}")
-    return plan_for_filter(
-        conn,
-        settings_db.all(conn),
-        band=body.band,
-        folder_id=parse_id(body.folder_id) if body.folder_id else None,
-        has_identical=body.has_identical,
-        min_size=body.min_size,
-    )
+    folder_id = parse_id(body.folder_id) if body.folder_id else None
+    paths = state.registry.paths(name)
+
+    def work() -> BulkPlan:
+        from contextlib import closing
+
+        from visualstore.db.connection import connect
+
+        with closing(connect(paths.metadata_db)) as conn:
+            return plan_for_filter(
+                conn,
+                settings_db.all(conn),
+                band=body.band,
+                folder_id=folder_id,
+                has_identical=body.has_identical,
+                min_size=body.min_size,
+            )
+
+    return await asyncio.to_thread(work)
 
 
 def _summary(plan: BulkPlan, threshold: int) -> dict:
@@ -60,14 +75,17 @@ def _summary(plan: BulkPlan, threshold: int) -> dict:
 
 @router.post("/preview")
 async def preview(body: BulkFilter, request: Request, name: str = Depends(get_profile)) -> dict:
-    conn = get_state(request).registry.conn(name)
-    return _summary(_plan(conn, body), int(settings_db.get(conn, "bulk.confirm_threshold")))
+    state = get_state(request)
+    conn = state.registry.conn(name)
+    plan = await _plan(state, name, body)
+    return _summary(plan, int(settings_db.get(conn, "bulk.confirm_threshold")))
 
 
 @router.post("/execute", status_code=201)
 async def execute(body: BulkExecute, request: Request, name: str = Depends(get_profile)) -> dict:
-    conn = get_state(request).registry.conn(name)
-    plan = _plan(conn, body)
+    state = get_state(request)
+    conn = state.registry.conn(name)
+    plan = await _plan(state, name, body)
     if not plan.groups:
         raise HTTPException(
             status_code=400,

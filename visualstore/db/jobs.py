@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 from visualstore.clock import now_iso
@@ -30,6 +31,33 @@ def enqueue(
             (job_id, type, json.dumps(params or {}), priority, kind, now_iso()),
         )
     return job_id
+
+
+def update_params(
+    conn: sqlite3.Connection, job_id: bytes, params: dict, priority: int | None = None
+) -> None:
+    with conn:
+        if priority is None:
+            conn.execute("UPDATE job SET params = ? WHERE id = ?", (json.dumps(params), job_id))
+        else:
+            conn.execute(
+                "UPDATE job SET params = ?, priority = ? WHERE id = ?",
+                (json.dumps(params), priority, job_id),
+            )
+
+
+def prune_finished(conn: sqlite3.Connection, done_before: str, failed_before: str) -> int:
+    """Forget done/cancelled jobs finished before `done_before` and failed ones before
+    `failed_before` (ISO timestamps). The job table is a queue, not an archive (audit B1)."""
+    with conn:
+        a = conn.execute(
+            "DELETE FROM job WHERE state IN ('done', 'cancelled') AND finished_at < ?",
+            (done_before,),
+        ).rowcount
+        b = conn.execute(
+            "DELETE FROM job WHERE state = 'failed' AND finished_at < ?", (failed_before,)
+        ).rowcount
+    return a + b
 
 
 def get(conn: sqlite3.Connection, job_id: bytes) -> sqlite3.Row | None:
@@ -99,17 +127,32 @@ def has_active_with_param(conn: sqlite3.Connection, type: str, key: str, value) 
     return row is not None
 
 
-def active_file_ids(conn: sqlite3.Connection, type: str) -> set[str]:
-    """File ids named in the `files` list of queued/running jobs of a type."""
+def active_jobs_for_files(conn: sqlite3.Connection, type: str) -> dict[str, bytes]:
+    """file id (str) -> job id for every file named in a queued/running job of a type."""
     rows = conn.execute(
-        "SELECT params FROM job WHERE type = ? AND state IN ('queued', 'running')", (type,)
+        "SELECT id, params FROM job WHERE type = ? AND state IN ('queued', 'running')", (type,)
     ).fetchall()
-    out: set[str] = set()
+    out: dict[str, bytes] = {}
     for r in rows:
         for entry in (json.loads(r["params"]) or {}).get("files", []):
             if isinstance(entry, dict) and "id" in entry:
-                out.add(str(entry["id"]))
+                out[str(entry["id"])] = bytes(r["id"])
     return out
+
+
+def active_file_ids(conn: sqlite3.Connection, type: str) -> set[str]:
+    """File ids named in the `files` list of queued/running jobs of a type."""
+    return set(active_jobs_for_files(conn, type))
+
+
+def raise_priority(conn: sqlite3.Connection, job_ids: Iterable[bytes], priority: int) -> int:
+    """A manual scan jumps the queue: queued jobs below `priority` are lifted to it."""
+    with conn:
+        cur = conn.executemany(
+            "UPDATE job SET priority = ? WHERE id = ? AND state = 'queued' AND priority < ?",
+            [(priority, j, priority) for j in set(job_ids)],
+        )
+    return cur.rowcount if cur.rowcount >= 0 else 0
 
 
 def has_active(conn: sqlite3.Connection, type: str) -> bool:

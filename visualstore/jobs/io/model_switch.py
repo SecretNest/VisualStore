@@ -34,7 +34,9 @@ def _cancel_foreign_jobs(conn, model_id: str) -> int:
     return cancelled
 
 
-def queue_missing_vectors(conn, vconn, settings: dict, model_dir) -> tuple[int, int]:
+def queue_missing_vectors(
+    conn, vconn, settings: dict, model_dir, folder_id: bytes | None = None
+) -> tuple[int, int]:
     """Fingerprint jobs for every fingerprinted media file lacking vectors for the active model,
     skipping files already named by a queued or running fingerprint job. Returns (files, jobs).
     Shared by the model switch and the start-up consistency check."""
@@ -44,6 +46,8 @@ def queue_missing_vectors(conn, vconn, settings: dict, model_dir) -> tuple[int, 
     in_flight = jobs_db.active_file_ids(conn, "fingerprint")
     queued_files = jobs_made = 0
     for folder in folders_db.list_folders(conn):
+        if folder_id is not None and bytes(folder["id"]) != folder_id:
+            continue
         rows = conn.execute(
             "SELECT f.id, f.directory, f.name, e.media_type FROM file f"
             " JOIN extension e ON e.id = f.extension_id"

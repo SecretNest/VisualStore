@@ -155,3 +155,27 @@ def test_pca_dims_is_validated_and_a_running_rebuild_does_not_swallow_a_change(c
         len([j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "rebuild_index"])
         == 1
     )
+
+
+def test_only_operator_job_types_can_be_created_through_the_api(client):
+    """Audit B3: compute jobs take file paths in their params; the API must not accept them."""
+    setup_profile(client)
+    for forbidden in ("build_index", "fingerprint", "match", "apply_action", "import_v1"):
+        r = client.post("/api/p/a/jobs", json={"type": forbidden, "params": {"export_path": "/x"}})
+        assert r.status_code == 400, forbidden
+    assert client.post("/api/p/a/jobs", json={"type": "maintenance"}).status_code == 201
+    assert client.post("/api/p/a/jobs", json={"type": "rebuild_index"}).status_code == 201
+
+
+def test_model_id_is_not_settable_directly_and_settings_have_maxima(client):
+    """Audit B14."""
+    setup_profile(client)
+    r = client.put("/api/p/a/settings/model.id", json={"value": "dinov2-vits14-384-v1"})
+    assert r.status_code == 400 and "model-switch" in r.json()["detail"]
+    assert (
+        client.put("/api/p/a/settings/similarity.top_k", json={"value": 100_000}).status_code == 400
+    )
+    assert (
+        client.put("/api/p/a/settings/frames.max_per_file", json={"value": 1000}).status_code == 400
+    )
+    assert client.put("/api/p/a/settings/similarity.top_k", json={"value": 256}).status_code == 200

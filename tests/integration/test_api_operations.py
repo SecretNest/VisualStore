@@ -41,10 +41,12 @@ def seeded(client, tmp_path):
 
 def test_trash_listing_and_restore(client, seeded):
     s = seeded
-    job = client.post(
-        "/api/p/a/jobs", json={"type": "apply_action", "params": {"trash": [id_to_str(s["x"])]}}
-    ).json()
-    assert wait_for(client, "a", job["id"])["state"] == "done"
+    from visualstore.db import jobs as jobs_db
+
+    job_id = jobs_db.enqueue(  # file actions are created by the server, not the generic endpoint
+        s["conn"], type="apply_action", kind="io", params={"trash": [id_to_str(s["x"])]}
+    )
+    assert wait_for(client, "a", id_to_str(job_id))["state"] == "done"
     [entry] = client.get("/api/p/a/trash").json()
     assert entry["before"]["relative_path"] == "set/x.jpg" and entry["type"] == "trash"
     restore = client.post("/api/p/a/trash/restore", json={"action_ids": [entry["id"]]})

@@ -138,3 +138,17 @@ def test_failed_import_leaves_the_profile_empty_and_retryable(world, monkeypatch
     monkeypatch.undo()
     result = run_import_v1(ctx_for(reg, params_for(tmp_path)))
     assert result["files"] == 4 and result["files_skipped"] == 0
+
+
+def test_scan_after_import_queues_vectors_for_imported_files(world):
+    """Audit B2: imported files are fingerprinted with SHA-1 but have no vectors yet."""
+    import json
+
+    reg, conn, tmp_path, ids = world
+    (tmp_path / "media" / "new" / "b.jpg").write_bytes(b"x" * 100)
+    run_import_v1(ctx_for(reg, params_for(tmp_path)))
+    inbox = next(r for r in folders.list_folders(conn) if r["name"] == "Inbox")
+    result = run_scan(ctx_for(reg, {"folder_id": id_to_str(inbox["id"])}))
+    queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
+    queued_ids = {f["id"] for j in queued for f in json.loads(j["params"])["files"]}
+    assert id_to_str(ids["f_b"].bytes) in queued_ids and result["vector_files_queued"] >= 1

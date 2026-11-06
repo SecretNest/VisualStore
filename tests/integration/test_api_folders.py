@@ -53,7 +53,11 @@ def test_folder_crud_ignored_and_validation(client, media):
     assert client.patch(f"/api/p/a/folders/{folder['id']}", json={"path": "/x"}).status_code == 422
 
     assert [f["name"] for f in client.get("/api/p/a/folders").json()] == ["Images 2"]
-    assert client.delete(f"/api/p/a/folders/{folder['id']}").status_code == 200
+    from tests.integration.test_api_profile_scoped import wait_for
+
+    removal = client.delete(f"/api/p/a/folders/{folder['id']}")
+    assert removal.status_code == 202
+    assert wait_for(client, "a", removal.json()["id"])["state"] == "done"
     assert client.get("/api/p/a/folders").json() == []
     assert client.delete("/api/p/a/folders/00000000-0000-0000-0000-000000000000").status_code == 404
     assert client.delete("/api/p/a/folders/not-an-id").status_code == 404
@@ -104,3 +108,64 @@ def test_bad_directory_strings_are_400_not_500(client, media):
         "directories": ["../x"],
     }
     assert client.post("/api/p/a/archive-move", json=move).status_code == 400
+
+
+def test_deleting_a_folder_runs_as_a_job_and_removes_derived_data(client, media):
+    """Audit B12."""
+    from tests.integration.test_api_profile_scoped import wait_for
+    from visualstore.db import files, fingerprints, folders
+    from visualstore.ids import id_to_str
+
+    setup(client)
+    reg = client.app.state.vs.registry
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    folder = client.post(
+        "/api/p/a/folders",
+        json={"name": "L", "path": str(media / "images"), "role": "inbox", "compare_scope": "all"},
+    ).json()
+    fid = folders.get_folder(
+        conn, __import__("visualstore.ids", fromlist=["id_from_str"]).id_from_str(folder["id"])
+    )["id"]
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    f1 = files.insert_file(
+        conn, folder_id=bytes(fid), directory="", name="a.jpg", extension_id=ext, size=1, mtime=1
+    )
+    fingerprints.replace_frames(vconn, f1, "sscd-resnet50-512-v1", [(0, 0, b"\x00" * 1024)])
+    fingerprints.allocate_keys(vconn, f1, "sscd-resnet50-512-v1", [0])
+    thumb = reg.paths("a").thumbs / id_to_str(f1)[:2] / f"{id_to_str(f1)}.webp"
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    thumb.write_bytes(b"t")
+    r = client.delete(f"/api/p/a/folders/{folder['id']}")
+    assert r.status_code == 202 and r.json()["type"] == "folder_delete"
+    assert client.get("/api/p/a/folders").json()[0]["enabled"] is False  # disabled at once
+    done = wait_for(client, "a", r.json()["id"])
+    assert done["state"] == "done" and done["progress"]["result"]["files"] == 1
+    assert client.get("/api/p/a/folders").json() == []
+    assert files.get_file(conn, f1) is None and not thumb.exists()
+    assert fingerprints.frames_of_file(vconn, f1, "sscd-resnet50-512-v1") == []
+    assert fingerprints.pending_removals(
+        vconn, "sscd-resnet50-512-v1"
+    )  # keys retired for the next match
+
+
+def test_changing_a_folder_role_marks_its_files_dirty(client, media):
+    from visualstore.db import files, folders, groups
+    from visualstore.ids import id_from_str
+
+    setup(client)
+    reg = client.app.state.vs.registry
+    conn = reg.conn("a")
+    folder = client.post(
+        "/api/p/a/folders",
+        json={"name": "L", "path": str(media / "images"), "role": "inbox", "compare_scope": "all"},
+    ).json()
+    fid = id_from_str(folder["id"])
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    files.insert_file(
+        conn, folder_id=fid, directory="", name="a.jpg", extension_id=ext, size=1, mtime=1
+    )
+    assert (
+        client.patch(f"/api/p/a/folders/{folder['id']}", json={"role": "archive"}).status_code
+        == 200
+    )
+    assert groups.dirty_count(conn) == 1

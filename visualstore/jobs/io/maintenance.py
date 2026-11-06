@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from visualstore.db import fingerprints as fp
@@ -92,11 +93,19 @@ def run_maintenance(ctx: IoContext) -> dict:
                 jobs_db.enqueue(
                     conn, type="rebuild_index", kind="io", priority=PRIORITY_MAINTENANCE
                 )
+        keep_days = int(ctx.settings.get("jobs.keep_days", 7))
+        now = datetime.now(UTC)
+        pruned = jobs_db.prune_finished(
+            conn,
+            (now - timedelta(days=keep_days)).isoformat(),
+            (now - timedelta(days=4 * keep_days)).isoformat(),
+        )
         idle = not _busy(conn)
         vacuumed_meta, free_meta = _vacuum_if_needed(conn, ratio, allowed=idle)
         vacuumed_vec, free_vec = _vacuum_if_needed(vconn, ratio, allowed=idle)
         skipped = None if idle else "busy"
     return {
+        "jobs_pruned": pruned,
         "vacuum_skipped": skipped,
         "orphan_thumbnails": thumbs,
         "orphan_previews": previews,

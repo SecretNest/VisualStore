@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 from visualstore.api.deps import get_profile, get_state, require_auth
 from visualstore.api.ids import parse_id
+from visualstore.db import files as files_db
 from visualstore.db import folders as folders_db
+from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.ids import id_to_str
 from visualstore.jobs.types import PRIORITY_USER
@@ -95,17 +97,33 @@ async def update_folder(
     conn = get_state(request).registry.conn(name)
     fid = parse_id(folder_id)
     _folder_or_404(conn, fid)
-    folders_db.update_folder(conn, fid, **body.model_dump(exclude_none=True))
+    changes = body.model_dump(exclude_none=True)
+    folders_db.update_folder(conn, fid, **changes)
+    if "role" in changes or "priority" in changes:
+        # The default resolution depends on role and priority (design §8.2): regroup.
+        groups_db.mark_dirty(
+            conn, [bytes(r["id"]) for r in files_db.list_files_in_folder(conn, fid)]
+        )
+        if not jobs_db.has_active(conn, "regroup"):
+            jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_USER)
     return _folder_out(conn, folders_db.get_folder(conn, fid))
 
 
-@router.delete("/folders/{folder_id}")
+@router.delete("/folders/{folder_id}", status_code=202)
 async def delete_folder(folder_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
+    """Disables the Folder at once and removes its files, vectors and derived images in a job."""
     conn = get_state(request).registry.conn(name)
     fid = parse_id(folder_id)
     _folder_or_404(conn, fid)
-    folders_db.delete_folder(conn, fid)
-    return {"ok": True}
+    folders_db.update_folder(conn, fid, enabled=False)
+    job_id = jobs_db.enqueue(
+        conn,
+        type="folder_delete",
+        kind="io",
+        priority=PRIORITY_USER,
+        params={"folder_id": folder_id},
+    )
+    return jobs_db.to_dict(jobs_db.get(conn, job_id))
 
 
 @router.post("/folders/{folder_id}/ignored", status_code=201)

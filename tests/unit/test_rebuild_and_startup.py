@@ -314,3 +314,31 @@ def test_sink_queues_no_match_while_a_rebuild_is_active(world):
     sink_fingerprint(make_sink_ctx(reg, "a", {"model": {"id": MODEL, "dim": 512}}, result))
     assert fingerprints.vector_count(vconn, MODEL) == 1
     assert {j["type"] for j in jobs_db.list_jobs(conn, state="queued")} == {"rebuild_index"}
+
+
+def test_queued_match_jobs_coalesce_until_they_run(world):
+    """Audit B10: a backlog of 64-vector batches becomes one job, not 15 000 index rewrites."""
+    from visualstore.jobs.results import enqueue_match
+
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    VectorIndex.empty(512).save(reg.paths("a").index)
+    fingerprints.set_meta(vconn, "model_id", MODEL)
+    model = {"id": MODEL, "dim": 512}
+    vec = base64.b64encode(np.zeros(512, np.float16).tobytes()).decode()
+    enqueue_match(
+        conn, vconn, settings_db.all(conn), reg.paths("a"), model, [{"seq": 1, "vector": vec}], 50
+    )
+    enqueue_match(
+        conn, vconn, settings_db.all(conn), reg.paths("a"), model, [{"seq": 2, "vector": vec}], 50
+    )
+    queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]
+    assert len(queued) == 1 and [e["seq"] for e in json.loads(queued[0]["params"])["entries"]] == [
+        1,
+        2,
+    ]
+    jobs_db.mark_running(conn, bytes(queued[0]["id"]))  # a running job is never appended to
+    enqueue_match(
+        conn, vconn, settings_db.all(conn), reg.paths("a"), model, [{"seq": 3, "vector": vec}], 50
+    )
+    assert len([j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]) == 1

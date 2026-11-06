@@ -8,6 +8,7 @@ Milestone 2 registers `fingerprint`; milestone 3 adds `match`, `rebuild_index`, 
 from __future__ import annotations
 
 import base64
+import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -64,6 +65,38 @@ def link_identical(conn: sqlite3.Connection, file_id: bytes, sha1: bytes) -> boo
 
 
 MATCH_BATCH = 64
+MATCH_COALESCE_MAX = 4096  # entries one queued match job may accumulate (audit B10)
+
+
+def compact_result(job_type: str, result: dict) -> dict:
+    """What of a compute result is worth keeping in the job table once the sink has consumed
+    it: counts, never vectors, thumbnails or hit lists (audit B1)."""
+    if job_type == "fingerprint":
+        files = result.get("files", [])
+        by_state: dict[str, int] = {}
+        for f in files:
+            by_state[f.get("state", "?")] = by_state.get(f.get("state", "?"), 0) + 1
+        return {
+            "files": len(files),
+            "by_state": by_state,
+            "frames": sum(len(f.get("frames", [])) for f in files),
+        }
+    if job_type == "match":
+        out = {k: v for k, v in result.items() if k != "hits"}
+        out["hits"] = len(result.get("hits", []))
+        return out
+    return result
+
+
+def compact_params(job_type: str, params: dict) -> dict:
+    """Params worth keeping once a compute job is done (the vectors of a match job are not)."""
+    if job_type == "match" and isinstance(params.get("entries"), list):
+        return {
+            **params,
+            "entries": len(params["entries"]),
+            "remove": len(params.get("remove", [])),
+        }
+    return params
 
 
 def _options(quantization: str, dims: int, paths, model_dim: int) -> dict:
@@ -107,6 +140,25 @@ def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, prio
 
     entries = list(entries)
     made = 0
+    options = index_options_on_disk(vconn, paths, int(model["dim"]))
+    # A queued (not yet running) match job for the same index absorbs new entries, so a backlog
+    # of fingerprint batches rewrites the index once, not once per 64 vectors (audit B10).
+    row = conn.execute(
+        "SELECT id, params, priority FROM job WHERE type = 'match' AND state = 'queued'"
+        " ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    if row is not None:
+        params = json.loads(row["params"])
+        same = params.get("index") == options and params.get("model", {}).get("id") == model["id"]
+        if same and len(params.get("entries", [])) + len(entries) <= MATCH_COALESCE_MAX:
+            params["entries"] = params.get("entries", []) + entries
+            params["remove"] = sorted(
+                set(params.get("remove", [])) | set(fp.pending_removals(vconn, model["id"]))
+            )
+            jobs_db.update_params(
+                conn, bytes(row["id"]), params, max(int(row["priority"]), priority)
+            )
+            return 0
     for start in range(0, len(entries), MATCH_BATCH):
         jobs_db.enqueue(
             conn,
@@ -116,7 +168,7 @@ def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, prio
             params={
                 "model": model,
                 "index_path": str(paths.index),
-                "index": index_options_on_disk(vconn, paths, int(model["dim"])),
+                "index": options,
                 "entries": entries[start : start + MATCH_BATCH],
                 "remove": fp.pending_removals(vconn, model["id"]) if start == 0 else [],
                 "top_k": int(settings["similarity.top_k"]),

@@ -6,7 +6,7 @@ import time
 import pytest
 
 from tests.fixtures.models import install_fake_model
-from visualstore.db import files, folders, pairs
+from visualstore.db import files, fingerprints, folders, pairs
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.ids import id_to_str
@@ -100,6 +100,11 @@ def test_moved_file_keeps_id_sha1_and_pairs(world):
         conn, two["id"], sha1=hashlib.sha1(b"two").digest(), state="fingerprinted"
     )
     pairs.upsert_sha1_pair(conn, one["id"], two["id"])  # pretend they were related
+    vconn = reg.vectors_conn("a")  # both files also have their vectors: nothing to recompute
+    for row in (one, two):
+        fingerprints.replace_frames(
+            vconn, bytes(row["id"]), "sscd-resnet50-512-v1", [(0, 0, b"\x00" * 1024)]
+        )
     with conn:  # drop the first scan's fingerprint job; both files are hashed already
         conn.execute("DELETE FROM job")
 
@@ -229,3 +234,44 @@ def test_fingerprint_jobs_carry_frame_sampling_params(world):
     run_scan(ctx_for(reg, folder))
     [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
     assert json.loads(job["params"])["frames"] == {"max_per_file": 5, "ffmpeg_timeout_s": 120}
+
+
+def test_rescan_does_not_requeue_files_already_waiting_for_fingerprinting(world):
+    """Audit B4: a daily scan over a long backlog must not multiply the queue."""
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    run_scan(ctx_for(reg, folder))
+    run_scan(ctx_for(reg, folder))
+    jobs = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
+    assert len(jobs) == 1
+
+
+def test_a_subtree_that_fails_to_list_does_not_delete_its_files(world, monkeypatch):
+    """Audit B5: a transient listing error is not an empty directory."""
+    import os
+
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    assert "sub/one.jpg" in rel_paths(conn, folder)
+    real_scandir = os.scandir
+
+    def flaky(path=".", *args, **kwargs):
+        if str(path).endswith("sub"):
+            raise PermissionError("transient")
+        return real_scandir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", flaky)
+    result = run_scan(ctx_for(reg, folder))
+    assert result["listing_errors"] == 1 and result["deleted"] == 0
+    assert "sub/one.jpg" in rel_paths(conn, folder)
+
+
+def test_names_that_are_not_valid_utf8_are_skipped_not_fatal(world):
+    """Audit B6."""
+    reg, conn, folder, lib = world
+    os.makedirs(lib / "odd", exist_ok=True)
+    with open(os.path.join(os.fsencode(str(lib / "odd")), b"bad\xff.jpg"), "wb") as fh:
+        fh.write(b"x")
+    result = run_scan(ctx_for(reg, folder))
+    assert result["skipped_names"] == 1
+    assert all("odd" not in p for p in rel_paths(conn, folder))

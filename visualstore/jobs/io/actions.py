@@ -154,7 +154,7 @@ def _refingerprint(conn, ctx: IoContext, folder, file_id: bytes, before: dict) -
     media = {bytes(r["id"]): r["media_type"] for r in folders_db.list_extensions(conn)}.get(
         id_from_str(before["extension_id"]), "other"
     )
-    if media != "image":
+    if media not in ("image", "animated", "video"):
         return
     try:
         model = job_params(get_spec(ctx.settings["model.id"], ctx.model_dir), ctx.model_dir)

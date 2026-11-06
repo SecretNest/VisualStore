@@ -10,6 +10,7 @@ from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db import pairs as pairs_db
 from visualstore.db.groups import NewGroup
+from visualstore.db.util import chunked
 from visualstore.domain.grouping import Component, PairEdge, components
 from visualstore.domain.resolution import Member, preselect, propagate_keep
 from visualstore.ids import id_to_str
@@ -20,15 +21,16 @@ BATCH = 2000
 
 
 def _same_sha1(conn: sqlite3.Connection, ids: set[bytes]) -> set[bytes]:
-    if not ids:
-        return set()
-    marks = ",".join("?" * len(ids))
-    rows = conn.execute(
-        "SELECT id FROM file WHERE state = 'fingerprinted' AND sha1 IN"
-        f" (SELECT sha1 FROM file WHERE id IN ({marks}) AND sha1 IS NOT NULL)",
-        list(ids),
-    ).fetchall()
-    return {bytes(r["id"]) for r in rows}
+    out: set[bytes] = set()
+    for chunk in chunked(list(ids)):
+        marks = ",".join("?" * len(chunk))
+        rows = conn.execute(
+            "SELECT id FROM file WHERE sha1 IN"
+            f" (SELECT sha1 FROM file WHERE id IN ({marks}) AND sha1 IS NOT NULL)",
+            chunk,
+        ).fetchall()
+        out.update(bytes(r["id"]) for r in rows)
+    return out
 
 
 def _closure(conn: sqlite3.Connection, seeds: list[bytes], model_id: str | None) -> set[bytes]:
@@ -68,14 +70,16 @@ def _rehub_identical(conn: sqlite3.Connection, scope: set[bytes]) -> None:
 
 
 def _members(conn: sqlite3.Connection, ids: set[bytes]) -> dict[bytes, Member]:
-    if not ids:
-        return {}
-    marks = ",".join("?" * len(ids))
-    rows = conn.execute(
-        "SELECT f.id, f.folder_id, f.directory, f.name, fo.role, fo.priority"
-        f" FROM file f JOIN folder fo ON fo.id = f.folder_id WHERE f.id IN ({marks})",
-        list(ids),
-    ).fetchall()
+    rows: list[sqlite3.Row] = []
+    for chunk in chunked(list(ids)):
+        marks = ",".join("?" * len(chunk))
+        rows.extend(
+            conn.execute(
+                "SELECT f.id, f.folder_id, f.directory, f.name, fo.role, fo.priority"
+                f" FROM file f JOIN folder fo ON fo.id = f.folder_id WHERE f.id IN ({marks})",
+                chunk,
+            ).fetchall()
+        )
     return {
         bytes(r["id"]): Member(
             bytes(r["id"]),
@@ -89,7 +93,7 @@ def _members(conn: sqlite3.Connection, ids: set[bytes]) -> dict[bytes, Member]:
 
 
 def _existing_group(conn: sqlite3.Connection, comp: Component):
-    """The current group holding exactly this member set, if any: (status, decisions)."""
+    """The current group holding exactly this member set, if any: (status, decisions, id)."""
     any_member = next(iter(comp.members))
     g = groups_db.group_of_file(conn, any_member)
     if g is None:
@@ -97,7 +101,7 @@ def _existing_group(conn: sqlite3.Connection, comp: Component):
     rows = groups_db.members(conn, bytes(g["id"]))
     if {bytes(r["file_id"]) for r in rows} != set(comp.members):
         return None
-    return g["status"], {bytes(r["file_id"]): r["decision"] for r in rows}
+    return g["status"], {bytes(r["file_id"]): r["decision"] for r in rows}, bytes(g["id"])
 
 
 def run_regroup(ctx: IoContext) -> dict:
@@ -107,7 +111,7 @@ def run_regroup(ctx: IoContext) -> dict:
     stats = {"components": 0, "groups": 0, "auto_executed": 0}
     with closing(ctx.open_metadata()) as conn:
         while True:
-            seeds = groups_db.pop_dirty(conn, BATCH)
+            seeds = groups_db.peek_dirty(conn, BATCH)  # cleared once the groups are written
             if not seeds:
                 break
             scope = _closure(conn, seeds, model_id)
@@ -138,10 +142,15 @@ def run_regroup(ctx: IoContext) -> dict:
                 ]
                 all_identical = all(e.source == "sha1" for e in inner)
                 existing = _existing_group(conn, comp)
+                reuse = existing[2] if existing is not None else None
                 if existing is not None and existing[0] in ("resolved", "dismissed"):
                     status, decisions, auto = existing[0], existing[1], False
                 elif inner and all(e.judgment == "related_keep" for e in inner):
                     status, decisions, auto = "resolved", dict.fromkeys(comp.members, "keep"), False
+                elif existing is not None and existing[0] == "open":
+                    # Same members, still open: the stored decisions (preselection or the
+                    # user's edits awaiting apply_action) stand; never re-execute (audit B8).
+                    status, decisions, auto = "open", existing[1], False
                 else:
                     pre = preselect(
                         [members_by_id[m] for m in comp.members if m in members_by_id],
@@ -158,9 +167,17 @@ def run_regroup(ctx: IoContext) -> dict:
                 if auto:
                     to_execute.append(len(new_groups))
                 new_groups.append(
-                    NewGroup(comp.members, comp.min_distance, comp.has_identical, status, decisions)
+                    NewGroup(
+                        comp.members,
+                        comp.min_distance,
+                        comp.has_identical,
+                        status,
+                        decisions,
+                        reuse,
+                    )
                 )
             created = groups_db.replace_groups(conn, old_groups, new_groups)
+            groups_db.clear_dirty(conn, seeds)
             stats["groups"] += len(created)
             for index in to_execute:
                 gid, ng = created[index], new_groups[index]

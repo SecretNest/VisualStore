@@ -354,3 +354,26 @@ def test_move_into_the_trash_directory_is_refused(world):
         ctx_for(reg, {"rename": [{"file_id": id_to_str(a), "name": ".visualstore-trash"}]})
     )
     assert result["skipped"] == [{"id": id_to_str(a), "reason": "bad name"}]
+
+
+def test_restored_video_is_fingerprinted_again_too(world):
+    """Audit B11: trashing drops frames of every media type."""
+    reg, conn, folder, lib, add = world
+    ext = folders.extension_map(conn)["mp4"]["id"]
+    (lib / "clip.mp4").write_bytes(b"video bytes")
+    st = (lib / "clip.mp4").stat()
+    clip = files.insert_file(
+        conn,
+        folder_id=folder,
+        directory="",
+        name="clip.mp4",
+        extension_id=ext,
+        size=st.st_size,
+        mtime=st.st_mtime_ns,
+    )
+    files.set_fingerprint_result(conn, clip, sha1=b"\x07" * 20, state="fingerprinted")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(clip)]}))
+    [act] = actions.list_trash(conn)
+    run_apply_action(ctx_for(reg, {"restore": [id_to_str(act["id"])]}))
+    queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
+    assert len(queued) == 1 and json.loads(queued[0]["params"])["files"][0]["media_type"] == "video"
