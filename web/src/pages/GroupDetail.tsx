@@ -22,6 +22,8 @@ export default function GroupDetail() {
         members: d.group.members.map((m) => ({ file_id: m.file_id, decision: m.decision })),
         selected: 0,
         anchor: null,
+        mode: "side",
+        target: null,
       });
       setError(null);
     } catch (err) {

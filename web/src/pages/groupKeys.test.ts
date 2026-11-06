@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyKey, type KeyState } from "./groupKeys";
+import { applyKey, compareTarget, type KeyState } from "./groupKeys";
 
 const base: KeyState = {
   members: [
@@ -9,6 +9,8 @@ const base: KeyState = {
   ],
   selected: 0,
   anchor: null,
+  mode: "side",
+  target: null,
 };
 
 describe("applyKey", () => {
@@ -43,5 +45,41 @@ describe("applyKey", () => {
 
   it("ignores other keys", () => {
     expect(applyKey(base, "x")).toEqual(base);
+  });
+});
+
+describe("comparison keys", () => {
+  const withMode = { ...base, mode: "side" as const, target: null };
+
+  it("s, o and b switch the mode", () => {
+    expect((applyKey(withMode, "o") as KeyState).mode).toBe("overlay");
+    expect((applyKey(withMode, "b") as KeyState).mode).toBe("blink");
+    expect((applyKey({ ...withMode, mode: "blink" }, "s") as KeyState).mode).toBe("side");
+  });
+
+  it("n and p cycle the comparison target over the other members, starting from the nearest", () => {
+    const n1 = applyKey(withMode, "n", 2) as KeyState; // nearest is index 2 → next other is index 1
+    expect(n1.target).toBe(1);
+    const n2 = applyKey(n1, "n", 2) as KeyState;
+    expect(n2.target).toBe(2);
+    const p = applyKey(withMode, "p", 1) as KeyState; // previous of 1, skipping selected 0 → 2
+    expect(p.target).toBe(2);
+    expect((applyKey({ ...withMode, members: [base.members[0]] }, "n", null) as KeyState).target).toBeNull();
+  });
+
+  it("selecting a member resets the target; Space swaps selected and target", () => {
+    const targeted = { ...withMode, target: 2 };
+    expect((applyKey(targeted, "2") as KeyState).target).toBeNull();
+    expect((applyKey(targeted, "ArrowDown") as KeyState).target).toBeNull();
+    const swapped = applyKey(targeted, " ") as KeyState;
+    expect(swapped.selected).toBe(2);
+    expect(swapped.target).toBe(0);
+    expect(applyKey(withMode, " ")).toEqual(withMode);
+  });
+
+  it("compareTarget falls back to the nearest neighbour", () => {
+    expect(compareTarget(withMode, 1)).toBe(1);
+    expect(compareTarget({ ...withMode, target: 2 }, 1)).toBe(2);
+    expect(compareTarget(withMode, null)).toBeNull();
   });
 });

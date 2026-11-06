@@ -42,3 +42,9 @@ button.active { outline: 2px solid currentColor; }
 .thumb { object-fit: cover; border-radius: 0.25rem; vertical-align: middle; margin-right: 0.5rem; background: color-mix(in srgb, currentColor 10%, transparent); }
 .thumb-empty { display: inline-block; }
 td.with-thumb { white-space: nowrap; }
+.compare { margin: 0.75rem 0; }
+.compare-images { display: flex; gap: 0.5rem; align-items: flex-start; }
+.compare-images img.preview { max-width: 48%; max-height: 70vh; object-fit: contain; background: color-mix(in srgb, currentColor 10%, transparent); }
+.compare-stacked .compare-images { position: relative; display: block; min-height: 12rem; }
+.compare-stacked .compare-images img.preview { position: absolute; top: 0; left: 0; max-width: 100%; }
+.preview-missing { padding: 2rem; opacity: 0.7; }
