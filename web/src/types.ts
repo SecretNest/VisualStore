@@ -173,3 +173,14 @@ export interface FileDetail {
   pairs: Pair[];
   candidates: Candidate[];
 }
+
+export interface BulkPreview {
+  matched: number;
+  planned: number;
+  skipped: number;
+  files_to_delete: number;
+  folders: string[];
+  token: string;
+  threshold: number;
+  typed_confirmation_required: boolean;
+}

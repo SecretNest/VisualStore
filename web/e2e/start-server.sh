@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE/../.."
 npm --prefix web run build
 tmp="$(mktemp -d)"
-mkdir -p "$tmp/media/lib/sub" "$tmp/models" "$tmp/data" "$tmp/backups"
+mkdir -p "$tmp/media/lib/sub" "$tmp/media/lib/sub2" "$tmp/models" "$tmp/data" "$tmp/backups"
 uv run python - "$tmp" <<'PY'
 import json, struct, sys, zlib
 from pathlib import Path
@@ -26,6 +26,8 @@ def png(rgb, size=64):
 (tmp / "media/lib/a.png").write_bytes(png((255, 0, 0)))
 (tmp / "media/lib/b.png").write_bytes(png((255, 0, 0)))  # byte-identical to a.png
 (tmp / "media/lib/sub/c.png").write_bytes(png((0, 255, 0)))  # far from red under the tiny model
+(tmp / "media/lib/sub2/d.png").write_bytes(png((0, 0, 255)))  # a second byte-identical pair (blue)
+(tmp / "media/lib/sub2/e.png").write_bytes(png((0, 0, 255)))
 build_tiny_model(tmp / "models/tiny-test-8-v1.onnx")
 (tmp / "models/models.json").write_text(json.dumps({
     "tiny-test-8-v1": {"dim": 8, "input_size": 16, "mean": [0, 0, 0], "std": [1, 1, 1],

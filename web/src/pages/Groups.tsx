@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ApiError, get } from "../api";
+import { ApiError, get, post } from "../api";
 import Thumb from "../components/Thumb";
 import { formatWhen } from "../format";
-import type { Folder, Group } from "../types";
+import type { BulkPreview, Folder, Group } from "../types";
 
 const PAGE = 50;
 const STATUSES = ["open", "auto_resolved", "resolved", "dismissed"];
@@ -23,6 +23,9 @@ export default function Groups() {
   const [minSize, setMinSize] = useState(2);
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [bulk, setBulk] = useState<BulkPreview | null>(null);
+  const [typed, setTyped] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
 
   const query = useCallback(
     (off: number) => {
@@ -61,6 +64,41 @@ export default function Groups() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const filterBody = {
+    band: bandFilter || null,
+    folder_id: folderId || null,
+    has_identical: identical ? true : null,
+    min_size: minSize,
+  };
+
+  async function previewBulk() {
+    setError(null);
+    setNotice(null);
+    try {
+      setBulk(await post<BulkPreview>(`/api/p/${name}/groups/bulk/preview`, filterBody));
+      setTyped("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not preview.");
+    }
+  }
+
+  async function executeBulk() {
+    if (!bulk) return;
+    setError(null);
+    try {
+      const job = await post<{ id: string }>(`/api/p/${name}/groups/bulk/execute`, {
+        ...filterBody,
+        token: bulk.token,
+        confirm: bulk.typed_confirmation_required ? Number(typed) : null,
+      });
+      setNotice(`Bulk resolution queued as job ${job.id}.`);
+      setBulk(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not execute.");
+    }
+  }
+
   async function more() {
     const next = await get<Group[]>(query(offset));
     setGroups((prev) => [...prev, ...next]);
@@ -84,7 +122,7 @@ export default function Groups() {
       <form className="inline" onSubmit={(e) => e.preventDefault()}>
         <label>
           Status
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select value={status} onChange={(e) => { setStatus(e.target.value); setBulk(null); }}>
             <option value="">any</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -95,7 +133,7 @@ export default function Groups() {
         </label>
         <label>
           Folder
-          <select value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+          <select value={folderId} onChange={(e) => { setFolderId(e.target.value); setBulk(null); }}>
             <option value="">any</option>
             {folders.map((f) => (
               <option key={f.id} value={f.id}>
@@ -106,7 +144,7 @@ export default function Groups() {
         </label>
         <label>
           Band
-          <select value={bandFilter} onChange={(e) => setBandFilter(e.target.value)}>
+          <select value={bandFilter} onChange={(e) => { setBandFilter(e.target.value); setBulk(null); }}>
             <option value="">any</option>
             {BANDS.map((b) => (
               <option key={b} value={b}>
@@ -116,7 +154,7 @@ export default function Groups() {
           </select>
         </label>
         <label className="inline-label">
-          <input type="checkbox" checked={identical} onChange={(e) => setIdentical(e.target.checked)} /> byte-identical
+          <input type="checkbox" checked={identical} onChange={(e) => { setIdentical(e.target.checked); setBulk(null); }} /> byte-identical
           only
         </label>
         <label>
@@ -126,10 +164,50 @@ export default function Groups() {
             min={2}
             value={minSize}
             style={{ width: "4rem" }}
-            onChange={(e) => setMinSize(Number(e.target.value) || 2)}
+            onChange={(e) => { setMinSize(Number(e.target.value) || 2); setBulk(null); }}
           />
         </label>
       </form>
+      <details className="bulk" open={bulk !== null || notice !== null}>
+        <summary>Default rules for this filter (open groups only)</summary>
+        <p className="muted">
+          Applies the default resolution (keep archive files, delete inbox files; inbox-only groups keep the first by
+          path) to every open group matching the filter. Groups the rules cannot decide are skipped.
+        </p>
+        <div className="actions-row">
+          <button type="button" onClick={() => void previewBulk()}>
+            Preview
+          </button>
+          {bulk && (
+            <>
+              <span role="status">
+                {bulk.matched} groups match, {bulk.planned} get the default resolution ({bulk.skipped} skipped),{" "}
+                {bulk.files_to_delete} files will be moved to the trash
+                {bulk.folders.length > 0 ? ` from ${bulk.folders.join(", ")}` : ""}.
+              </span>
+              {bulk.typed_confirmation_required && (
+                <label className="inline-label">
+                  Type {bulk.files_to_delete} to confirm
+                  <input value={typed} onChange={(e) => setTyped(e.target.value)} style={{ width: "6rem" }} />
+                </label>
+              )}
+              <button
+                type="button"
+                className="danger"
+                disabled={bulk.planned === 0 || (bulk.typed_confirmation_required && Number(typed) !== bulk.files_to_delete)}
+                onClick={() => void executeBulk()}
+              >
+                Execute
+              </button>
+            </>
+          )}
+        </div>
+        {notice && (
+          <p className="muted">
+            {notice} <Link to={`/p/${name}/jobs`}>Jobs</Link>
+          </p>
+        )}
+      </details>
       {groups.length === 0 ? (
         <p className="muted">No groups match.</p>
       ) : (
