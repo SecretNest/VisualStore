@@ -5,12 +5,13 @@ import time
 
 import pytest
 
+from tests.fixtures.models import install_fake_model
 from visualstore.db import files, folders, pairs
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.ids import id_to_str
 from visualstore.jobs.io import IO_HANDLERS
-from visualstore.jobs.io.scan import run_scan
+from visualstore.jobs.io.scan import ScanError, run_scan
 from visualstore.jobs.scheduler import IoContext
 from visualstore.profiles import ProfileRegistry
 
@@ -20,6 +21,7 @@ def world(tmp_path):
     reg = ProfileRegistry(tmp_path / "data")
     reg.open()
     reg.create("a")
+    install_fake_model(reg.data_dir / "models")
     lib = tmp_path / "lib"
     (lib / "sub").mkdir(parents=True)
     (lib / "Thumbs").mkdir()
@@ -210,3 +212,14 @@ def test_fingerprint_jobs_carry_model_and_limits(world):
     assert params["model"]["id"] == "sscd-resnet50-512-v1" and params["model"]["dim"] == 512
     assert params["model"]["path"].endswith("sscd-resnet50-512-v1.onnx")
     assert params["max_pixels"] == 80_000_000 and params["priority"] == 50
+
+
+def test_scan_fails_before_recording_anything_when_the_model_is_unavailable(world):
+    reg, conn, folder, lib = world
+    (reg.data_dir / "models" / "sscd-resnet50-512-v1.onnx").unlink()
+    (
+        reg.data_dir / "models" / "models.json"
+    ).unlink()  # built-in entry: no hash yet → not downloadable
+    with pytest.raises(ScanError, match="model"):
+        run_scan(ctx_for(reg, folder))
+    assert rel_paths(conn, folder) == [] and jobs_db.list_jobs(conn) == []

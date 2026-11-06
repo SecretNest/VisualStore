@@ -1,5 +1,6 @@
 import pytest
 
+from tests.fixtures.models import install_fake_model
 from tests.fixtures.v1db import build
 from visualstore.db import files, folders, groups, pairs
 from visualstore.db import jobs as jobs_db
@@ -15,6 +16,7 @@ from visualstore.profiles import ProfileRegistry
 @pytest.fixture
 def world(tmp_path):
     reg = ProfileRegistry(tmp_path / "data")
+    install_fake_model(tmp_path / "data" / "models")
     reg.open()
     reg.create("a")
     (tmp_path / "media" / "images").mkdir(parents=True)

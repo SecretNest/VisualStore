@@ -18,7 +18,7 @@ EXPORT_NAME = "index.export.npz"
 
 
 def run_rebuild_index(ctx: IoContext) -> dict:
-    spec = get_spec(ctx.settings["model.id"])
+    spec = get_spec(ctx.settings["model.id"], ctx.model_dir)
     export = ctx.paths.root / EXPORT_NAME
     with closing(ctx.open_vectors()) as vconn, closing(ctx.open_metadata()) as conn:
         keys: list[int] = []

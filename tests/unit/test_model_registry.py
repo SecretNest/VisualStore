@@ -66,3 +66,23 @@ def test_local_only_when_hash_is_unknown(tmp_path):
     model_dir.mkdir()
     (model_dir / "tiny-test-8-v1.onnx").write_bytes(b"whatever")
     assert registry.resolve_model_path(s, model_dir).read_bytes() == b"whatever"
+
+
+def test_local_registry_in_the_model_dir_adds_and_overrides_entries_as_local_only(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / "models.json").write_text(
+        '{"tiny-test-8-v1": {"dim": 8, "input_size": 16, "mean": [0, 0, 0], "std": [1, 1, 1]},'
+        ' "sscd-resnet50-512-v1": {"dim": 512, "input_size": 288, "mean": [0, 0, 0], "std": [1, 1, 1],'
+        ' "url": "https://example.invalid/x", "sha256": "abc"}}'
+    )
+    reg = registry.load_registry(model_dir)
+    assert reg["tiny-test-8-v1"].dim == 8 and reg["tiny-test-8-v1"].sha256 == ""
+    assert reg["sscd-resnet50-512-v1"].sha256 == "" and reg["sscd-resnet50-512-v1"].url == ""
+    assert "dinov2-vits14-384-v1" in reg  # built-ins remain
+    assert registry.get_spec("tiny-test-8-v1", model_dir).input_size == 16
+    with pytest.raises(ModelError):
+        registry.get_spec("tiny-test-8-v1")  # not visible without the model dir
+    (model_dir / "models.json").write_text("{nope")
+    with pytest.raises(ModelError, match="not a valid model registry"):
+        registry.load_registry(model_dir)

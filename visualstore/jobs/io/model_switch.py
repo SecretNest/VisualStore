@@ -19,7 +19,7 @@ from visualstore.models.registry import get_spec, job_params, resolve_model_path
 
 
 def run_model_switch(ctx: IoContext) -> dict:
-    spec = get_spec(ctx.params["model_id"])
+    spec = get_spec(ctx.params["model_id"], ctx.model_dir)
     resolve_model_path(spec, ctx.model_dir)  # downloads when allowed; raises before any change
     model = job_params(spec, ctx.model_dir)
     with closing(ctx.open_metadata()) as conn, closing(ctx.open_vectors()) as vconn:

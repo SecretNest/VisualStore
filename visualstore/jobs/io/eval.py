@@ -112,7 +112,7 @@ def _random_negatives(conn, rnd: random.Random, want: int, positives: set) -> se
 
 
 def run_eval(ctx: IoContext) -> dict:
-    spec = get_spec(ctx.settings["model.id"])
+    spec = get_spec(ctx.settings["model.id"], ctx.model_dir)
     rnd = random.Random(int(ctx.params.get("seed", 1)))
     want_random = int(ctx.params.get("negatives", 5000))
     with (

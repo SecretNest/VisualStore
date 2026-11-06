@@ -29,6 +29,7 @@ class RunEval(BaseModel):
 @router.get("/api/models")
 async def list_models(request: Request) -> list[dict]:
     model_dir = get_state(request).config.model_dir
+    registry = load_registry(model_dir)
     return [
         {
             "id": s.id,
@@ -37,7 +38,7 @@ async def list_models(request: Request) -> list[dict]:
             "description": s.description,
             "available": (model_dir / s.file_name()).is_file(),
         }
-        for s in load_registry().values()
+        for s in registry.values()
     ]
 
 
@@ -45,7 +46,7 @@ async def list_models(request: Request) -> list[dict]:
 async def switch_model(
     body: SwitchModel, request: Request, name: str = Depends(get_profile)
 ) -> dict:
-    if body.model_id not in load_registry():
+    if body.model_id not in load_registry(get_state(request).config.model_dir):
         raise HTTPException(status_code=400, detail=f"Unknown model '{body.model_id}'.")
     conn = get_state(request).registry.conn(name)
     job_id = jobs_db.enqueue(

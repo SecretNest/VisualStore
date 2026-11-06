@@ -26,7 +26,7 @@ from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import sha1_of
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
-from visualstore.models.registry import get_spec, job_params
+from visualstore.models.registry import ModelError, get_spec, job_params, resolve_model_path
 
 FINGERPRINT_BATCH = 64
 
@@ -88,6 +88,7 @@ def run_scan(ctx: IoContext) -> dict:
             (r["directory"], bool(r["recursive"])) for r in folders_db.list_ignored(conn, folder_id)
         ]
         _check_root(folder["path"])
+        model = _resolve_model(ctx)
         disk = walk(folder["path"], extensions, ignored, ctx.report)
         db_rows = files_db.list_files_in_folder(conn, folder_id)
         if db_rows and not disk:
@@ -161,7 +162,7 @@ def run_scan(ctx: IoContext) -> dict:
 
         default_priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
         priority = int(ctx.params.get("priority") or default_priority)
-        jobs = _enqueue_fingerprints(conn, folder, priority, ctx)
+        jobs = _enqueue_fingerprints(conn, folder, priority, ctx, model)
         return {
             "inserted": len(plan.insert) - len(moved_ids),
             "changed": len(plan.changed),
@@ -184,9 +185,19 @@ def _check_root(folder_path: str) -> None:
         raise ScanError(f"Folder path is not available: {folder_path} ({exc})") from exc
 
 
-def _enqueue_fingerprints(conn, folder, priority: int, ctx: IoContext) -> int:
+def _resolve_model(ctx: IoContext) -> dict:
+    """The active model as compute-job params; downloads it on first use (ADR-0005). A model
+    that cannot be obtained fails the scan before anything is recorded."""
+    try:
+        spec = get_spec(ctx.settings["model.id"], ctx.model_dir)
+        resolve_model_path(spec, ctx.model_dir)
+    except ModelError as exc:
+        raise ScanError(f"The active model is not available: {exc}") from exc
+    return job_params(spec, ctx.model_dir)
+
+
+def _enqueue_fingerprints(conn, folder, priority: int, ctx: IoContext, model: dict) -> int:
     extensions = {bytes(r["id"]): r["media_type"] for r in folders_db.list_extensions(conn)}
-    model = job_params(get_spec(ctx.settings["model.id"]), ctx.model_dir)
     max_pixels = int(ctx.settings["media.max_pixels"])
     pending = files_db.files_by_state(conn, "new", bytes(folder["id"]), limit=1_000_000)
     count = 0

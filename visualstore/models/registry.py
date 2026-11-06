@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _REGISTRY_FILE = Path(__file__).parent / "models.json"
+LOCAL_REGISTRY_NAME = "models.json"
 
 
 class ModelError(Exception):
@@ -31,13 +32,12 @@ class ModelSpec:
         return f"{self.id}.onnx"
 
 
-def load_registry() -> dict[str, ModelSpec]:
-    raw = json.loads(_REGISTRY_FILE.read_text(encoding="utf-8"))
+def _parse(raw: dict, *, local: bool) -> dict[str, ModelSpec]:
     return {
         model_id: ModelSpec(
             id=model_id,
-            url=v["url"],
-            sha256=v.get("sha256", ""),
+            url="" if local else v["url"],
+            sha256="" if local else v.get("sha256", ""),
             dim=int(v["dim"]),
             input_size=int(v["input_size"]),
             mean=tuple(v["mean"]),
@@ -48,9 +48,25 @@ def load_registry() -> dict[str, ModelSpec]:
     }
 
 
-def get_spec(model_id: str) -> ModelSpec:
+def load_registry(model_dir: Path | None = None) -> dict[str, ModelSpec]:
+    """The built-in registry, plus any entries from `<model_dir>/models.json`.
+
+    Local entries describe ONNX files the operator placed in the model directory by hand
+    (`<id>.onnx`): they are never downloaded or hash-checked and take precedence over a
+    built-in entry with the same id."""
+    specs = _parse(json.loads(_REGISTRY_FILE.read_text(encoding="utf-8")), local=False)
+    local_file = model_dir / LOCAL_REGISTRY_NAME if model_dir else None
+    if local_file and local_file.is_file():
+        try:
+            specs.update(_parse(json.loads(local_file.read_text(encoding="utf-8")), local=True))
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ModelError(f"{local_file} is not a valid model registry: {exc}") from exc
+    return specs
+
+
+def get_spec(model_id: str, model_dir: Path | None = None) -> ModelSpec:
     try:
-        return load_registry()[model_id]
+        return load_registry(model_dir)[model_id]
     except KeyError:
         raise ModelError(f"unknown model id {model_id!r}") from None
 

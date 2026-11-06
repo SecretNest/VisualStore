@@ -80,7 +80,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
             ],
         )
         scheduler.requeue_interrupted()
-        check_indexes(registry)
+        check_indexes(registry, config.model_dir)
         await scheduler.start()
         app.state.vs = AppState(
             config=config,
