@@ -24,6 +24,24 @@ class Decoded:
     image: pyvips.Image
     width: int
     height: int
+    pages: int = 1
+
+
+def normalise(img: pyvips.Image) -> pyvips.Image:
+    """EXIF rotation, alpha flattened on white, sRGB, three uchar bands, decoded in memory."""
+    try:
+        img = img.autorot()
+        if img.hasalpha():
+            img = img.flatten(background=[255, 255, 255])
+        if img.interpretation != "srgb" or img.bands != 3:
+            img = img.colourspace("srgb")
+        if img.bands > 3:
+            img = img.extract_band(0, n=3)
+        if img.format != "uchar":  # 16-bit / float sources: bound the buffer to w*h*3 bytes
+            img = img.cast("uchar")
+        return img.copy_memory()  # decode now so truncated data fails here, not later
+    except pyvips.Error as exc:
+        raise Unreadable(str(exc)) from exc
 
 
 def load_image(path: str, max_pixels: int) -> Decoded:
@@ -39,19 +57,20 @@ def load_image(path: str, max_pixels: int) -> Decoded:
         raise Unreadable(message) from exc
     if img.width * img.height > max_pixels:
         raise Unreadable(f"{img.width}x{img.height} exceeds the limit of {max_pixels} pixels")
+    pages = int(img.get("n-pages")) if img.get_typeof("n-pages") else 1
+    img = normalise(img)
+    return Decoded(image=img, width=img.width, height=img.height, pages=pages)
+
+
+def image_from_png(data: bytes, max_pixels: int) -> Decoded:
+    """A frame that ffmpeg wrote as PNG."""
     try:
-        img = img.autorot()
-        if img.hasalpha():
-            img = img.flatten(background=[255, 255, 255])
-        if img.interpretation != "srgb" or img.bands != 3:
-            img = img.colourspace("srgb")
-        if img.bands > 3:
-            img = img.extract_band(0, n=3)
-        if img.format != "uchar":  # 16-bit / float sources: bound the buffer to w*h*3 bytes
-            img = img.cast("uchar")
-        img = img.copy_memory()  # decode now so truncated data fails here, not later
+        img = pyvips.Image.new_from_buffer(data, "", access="sequential", fail_on="truncated")
     except pyvips.Error as exc:
         raise Unreadable(str(exc)) from exc
+    if img.width * img.height > max_pixels:
+        raise Unreadable(f"{img.width}x{img.height} exceeds the limit of {max_pixels} pixels")
+    img = normalise(img)
     return Decoded(image=img, width=img.width, height=img.height)
 
 
