@@ -45,7 +45,7 @@ def test_shipped_migrations_create_expected_tables(tmp_path, name, tables):
     names = {
         r["name"]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        if r["name"] != "schema_version"
+        if r["name"] not in ("schema_version", "sqlite_sequence")
     }
     assert names == tables
 
