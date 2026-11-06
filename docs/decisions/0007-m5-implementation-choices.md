@@ -21,3 +21,10 @@ The milestone 5 task-level plan listed decisions to take before expansion: frame
 
 - A long video costs up to `frames.max_per_file + 1` index entries (the keyframe); design §9.5's 1.5 frames average still holds for photo-heavy libraries.
 - ffmpeg is a hard dependency of the compute children for video and APNG; the image and CI install it, and a missing binary marks such files `unreadable` with a clear reason rather than crashing.
+
+## Facts learned while shipping
+
+- `ffprobe` has no `-nostdin`; only ffmpeg gets it. Both run with `-protocol_whitelist file[,pipe]`, receive the input as `file:<absolute path>`, and ffmpeg decodes exactly the probed stream (`-map 0:v:0`); frame dimensions are checked against `media.max_pixels` with ffprobe before any frame is decoded, and unknown dimensions fail closed.
+- A file with a video extension that ffprobe cannot read is `not_media` (it used to be "fingerprinted, SHA-1 only" in milestone 3, when videos were not decoded).
+- libvips `n-pages` and per-page `delay` are available through a `Source` with sequential access for gif and webp; `page=i, n=1` loads one page. APNG still goes through ffmpeg (`-count_frames` for the frame count).
+- Under the 8-dimensional test model, colours collapse: the e2e uses a navy solid-colour clip (0x000080) and its frame-0 still because testsrc frames sit within 0.2 of pure red and blue.

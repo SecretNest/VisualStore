@@ -77,6 +77,16 @@ groups stay. To evaluate a model against your ImageStore judgments, run Jobs →
 the path of the v1 `.db`; the report lands in `/data/profiles/<profile>/reports/` and is linked
 from the same page.
 
+**Video and animated images.** Videos and animated images (gif, apng, animated webp) take part
+with sampled frames: up to `frames.max_per_file` (default 8) per file, one frame per second for
+clips up to 8 s and eight spread frames plus the first keyframe for longer ones; animated images
+use every frame up to the cap, then eight spread frames. Every frame costs one vector and one
+index entry (about 1.5 KB in the index including the graph links). A still that is a frame of a
+video lands in the same group as the video. Frames are extracted with the ffmpeg shipped in the
+image, each call bounded by `media.ffmpeg_timeout_s`; a file ffmpeg cannot read is marked
+unreadable, not retried forever. In group detail, a frame strip under the comparison pane shows a
+multi-frame member's frames with their times; clicking one puts that frame into the comparison.
+
 **Reviewing.** The Groups page lists open groups filtered by status, band and Folder. Group
 detail compares the selected member with its nearest neighbour side by side (`s`), as an overlay
 with an opacity slider (`o`) or blinking (`b`); `n`/`p` pick another member to compare with and
