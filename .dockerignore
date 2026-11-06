@@ -1,0 +1,14 @@
+.git
+.venv
+node_modules
+web/node_modules
+visualstore/static
+data
+backups
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.superpowers
+docs
+*.md
+!README.md

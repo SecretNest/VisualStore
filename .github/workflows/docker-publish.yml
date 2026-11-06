@@ -1,0 +1,84 @@
+name: Build and publish Docker image
+
+# Manual trigger only. The version comes from pyproject.toml unless typed into the form.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to publish. Leave empty to use [project].version from pyproject.toml."
+        required: false
+
+env:
+  IMAGE: ghcr.io/secretnest/visualstore
+  # ACR_REGISTRY is the Alibaba Cloud registry host (org secret); the repository path is fixed.
+  ACR_IMAGE: ${{ secrets.ACR_REGISTRY }}/secretnest/visualstore
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          v="$INPUT_VERSION"
+          if [ -z "$v" ]; then
+            v="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          fi
+          case "$v" in
+            '') echo "::error::No version found in pyproject.toml and none supplied."; exit 1 ;;
+            *[!0-9.]*|.*|*.) echo "::error::Version '$v' is not a dotted numeric version."; exit 1 ;;
+          esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.IMAGE }}
+            ${{ env.ACR_IMAGE }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Attestation manifests are rejected by ACR ("unknown manifest class"), so both stay off.
+          provenance: false
+          sbom: false
+          # Cache lives in GHCR; the type=gha export runs after the push and has stalled builds.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
