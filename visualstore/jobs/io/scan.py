@@ -26,6 +26,7 @@ from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import sha1_of
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
+from visualstore.media.frames import sampling_params
 from visualstore.models.registry import ModelError, get_spec, job_params, resolve_model_path
 
 FINGERPRINT_BATCH = 64
@@ -219,6 +220,7 @@ def _enqueue_fingerprints(conn, folder, priority: int, ctx: IoContext, model: di
                 ],
                 "model": model,
                 "max_pixels": max_pixels,
+                "frames": sampling_params(ctx.settings),
                 "priority": priority,
             },
         )

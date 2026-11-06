@@ -22,6 +22,7 @@ from visualstore.jobs import results
 from visualstore.jobs.io.scan import _abs
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_INBOX, PRIORITY_USER
+from visualstore.media.frames import sampling_params
 from visualstore.models.registry import ModelError, get_spec, job_params
 
 
@@ -174,6 +175,7 @@ def _refingerprint(conn, ctx: IoContext, folder, file_id: bytes, before: dict) -
             ],
             "model": model,
             "max_pixels": int(ctx.settings["media.max_pixels"]),
+            "frames": sampling_params(ctx.settings),
             "priority": PRIORITY_USER,
         },
     )

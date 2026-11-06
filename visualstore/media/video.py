@@ -4,6 +4,7 @@ Frames come back over a pipe as PNG; no temp files."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
@@ -13,8 +14,14 @@ from visualstore.media.errors import NotMedia, Unreadable
 from visualstore.media.frames import Frame
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-_PROBE = ["-hide_banner", "-loglevel", "error"]  # ffprobe has no -nostdin
-_FFMPEG = ["-nostdin", *_PROBE]
+# Library paths are user-controlled names: only the file protocol may be opened, the input is
+# always passed as file:<absolute path>, and nothing is read from stdin.
+_PROBE = ["-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file"]
+_FFMPEG = ["-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe"]
+
+
+def _input(path: str) -> str:
+    return "file:" + os.path.abspath(path)
 
 
 @dataclass(frozen=True)
@@ -23,6 +30,8 @@ class Probe:
     fps: float
     nb_frames: int | None
     first_keyframe_s: float | None
+    width: int = 0
+    height: int = 0
 
 
 def _run(args: list[str], timeout_s: float, what: str) -> bytes:
@@ -46,10 +55,10 @@ def probe(path: str, timeout_s: float) -> Probe:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "format=duration:stream=nb_frames,r_frame_rate,avg_frame_rate,codec_type",
+            "format=duration:stream=nb_frames,r_frame_rate,avg_frame_rate,codec_type,width,height",
             "-of",
             "json",
-            path,
+            _input(path),
         ],
         timeout_s,
         "ffprobe",
@@ -78,7 +87,33 @@ def probe(path: str, timeout_s: float) -> Probe:
         nb_frames = int(stream["nb_frames"]) if stream.get("nb_frames") else None
     except ValueError:
         nb_frames = None
-    return Probe(duration, fps or 25.0, nb_frames, _first_keyframe(path, timeout_s))
+    width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+    return Probe(duration, fps or 25.0, nb_frames, _first_keyframe(path, timeout_s), width, height)
+
+
+def _check_pixels(path: str, timeout_s: float, max_pixels: int) -> None:
+    """Refuse oversized frames before ffmpeg decodes anything (design §7.2 pixel limit)."""
+    out = _run(
+        [
+            "ffprobe",
+            *_PROBE,
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0",
+            _input(path),
+        ],
+        timeout_s,
+        "ffprobe",
+    )
+    try:
+        width, height = (int(v) for v in out.decode().strip().splitlines()[0].split(",")[:2])
+    except (ValueError, IndexError):
+        return  # unknown dimensions: the PNG decode still enforces the cap
+    if width * height > max_pixels:
+        raise Unreadable(f"{width}x{height} exceeds the limit of {max_pixels} pixels")
 
 
 def _first_keyframe(path: str, timeout_s: float) -> float | None:
@@ -97,7 +132,7 @@ def _first_keyframe(path: str, timeout_s: float) -> float | None:
                 "frame=pts_time",
                 "-of",
                 "csv=p=0",
-                path,
+                _input(path),
             ],
             timeout_s,
             "ffprobe",
@@ -120,7 +155,7 @@ def count_frames(path: str, timeout_s: float) -> int:
             "stream=nb_read_frames",
             "-of",
             "csv=p=0",
-            path,
+            _input(path),
         ],
         timeout_s,
         "ffprobe",
@@ -139,7 +174,7 @@ def frame_png(path: str, time_s: float, timeout_s: float) -> bytes:
             "-ss",
             f"{time_s:.3f}",
             "-i",
-            path,
+            _input(path),
             "-frames:v",
             "1",
             "-f",
@@ -159,6 +194,7 @@ def frame_png(path: str, time_s: float, timeout_s: float) -> bytes:
 def frames_at_times(
     path: str, times_s: list[float], timeout_s: float, max_pixels: int
 ) -> list[Frame]:
+    _check_pixels(path, timeout_s, max_pixels)
     frames: list[Frame] = []
     for t in times_s:
         try:
@@ -184,13 +220,14 @@ def frames_at_indices(
 ) -> list[Frame]:
     if not indices:
         return []
+    _check_pixels(path, timeout_s, max_pixels)
     select = "+".join(f"eq(n\\,{i})" for i in indices)
     data = _run(
         [
             "ffmpeg",
             *_FFMPEG,
             "-i",
-            path,
+            _input(path),
             "-vf",
             f"select='{select}'",
             "-fps_mode",

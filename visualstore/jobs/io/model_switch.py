@@ -16,6 +16,7 @@ from visualstore.ids import id_to_str
 from visualstore.jobs.io.scan import FINGERPRINT_BATCH, _abs
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
+from visualstore.media.frames import sampling_params
 from visualstore.models.registry import get_spec, job_params, resolve_model_path
 
 
@@ -70,6 +71,7 @@ def run_model_switch(ctx: IoContext) -> dict:
                         ],
                         "model": model,
                         "max_pixels": int(ctx.settings["media.max_pixels"]),
+                        "frames": sampling_params(ctx.settings),
                         "priority": priority,
                     },
                 )

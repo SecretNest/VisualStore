@@ -71,27 +71,64 @@ def _session(model: dict):
     return _SESSIONS[path]
 
 
-def _embed_image(path: str, model: dict, max_pixels: int) -> tuple[list[dict], str]:
-    from visualstore.media.decode import load_image, thumbnail_webp, to_model_input
+def _embed_frames(frames: list, model: dict, thumb_index: int) -> tuple[list[dict], str]:
+    from visualstore.media.decode import Decoded, thumbnail_webp, to_model_input
 
-    decoded = load_image(path, max_pixels)
     session = _session(model)
-    tensor = to_model_input(decoded, int(model["input_size"]), model["mean"], model["std"])
-    vector = session.embed(tensor)[0]
-    encoded = base64.b64encode(vector.astype(np.float16).tobytes()).decode("ascii")
-    frames = [{"index": 0, "time_ms": 0, "vector": encoded}]
-    thumb = base64.b64encode(thumbnail_webp(decoded, 256)).decode("ascii")
-    return frames, thumb
+    size = int(model["input_size"])
+    batch = np.concatenate(
+        [
+            to_model_input(
+                Decoded(f.image, f.image.width, f.image.height), size, model["mean"], model["std"]
+            )
+            for f in frames
+        ]
+    )
+    vectors = session.embed(batch)
+    out = [
+        {
+            "index": f.index,
+            "time_ms": f.time_ms,
+            "vector": base64.b64encode(v.astype(np.float16).tobytes()).decode("ascii"),
+        }
+        for f, v in zip(frames, vectors, strict=True)
+    ]
+    t = frames[thumb_index]
+    thumb = thumbnail_webp(Decoded(t.image, t.image.width, t.image.height), 256)
+    return out, base64.b64encode(thumb).decode("ascii")
+
+
+def _frames_for(path: str, media_type: str, max_pixels: int, sampling: dict) -> tuple[list, int]:
+    """The sampled frames of a file and which one becomes the thumbnail."""
+    from visualstore.media import animated, video
+    from visualstore.media.decode import load_image
+    from visualstore.media.frames import Frame, sample_times
+
+    max_frames = int(sampling.get("max_per_file", 8))
+    timeout = float(sampling.get("ffmpeg_timeout_s", 120))
+    if media_type == "video":
+        info = video.probe(path, timeout)
+        times = sample_times(info.duration_s, max_frames, info.first_keyframe_s)
+        frames = video.frames_at_times(path, times, timeout, max_pixels)
+        return frames, len(frames) // 2
+    if media_type == "animated":
+        return animated.frames(path, max_frames, timeout, max_pixels), 0
+    decoded = load_image(path, max_pixels)
+    if decoded.pages > 1:  # an animated webp with an image extension (design §5.1)
+        return animated.frames(path, max_frames, timeout, max_pixels), 0
+    return [Frame(0, 0, decoded.image)], 0
 
 
 def fingerprint(params: dict, report: Report) -> dict:
-    """SHA-1 for every file; vectors and a thumbnail for still images (design §7.2)."""
+    """SHA-1 for every file; vectors and a thumbnail for images, animated images and video
+    frames (design §7.2, §7.3)."""
     from visualstore.media.errors import NotMedia, Unreadable
     from visualstore.models.registry import ModelError
 
     entries = params.get("files", [])
     model = params.get("model")
     max_pixels = int(params.get("max_pixels", 80_000_000))
+    sampling = params.get("frames", {})
     out = []
     for i, entry in enumerate(entries, start=1):
         path = entry["path"]
@@ -104,10 +141,15 @@ def fingerprint(params: dict, report: Report) -> dict:
                 "size": st.st_size,
                 "mtime": st.st_mtime_ns,
             }
-            if model and entry.get("media_type") == "image":
+            if model and entry.get("media_type") in ("image", "animated", "video"):
                 try:
-                    frames, thumb = _embed_image(path, model, max_pixels)
-                    record.update({"frames": frames, "thumbnail": thumb, "model_id": model["id"]})
+                    frames, thumb_index = _frames_for(
+                        path, entry["media_type"], max_pixels, sampling
+                    )
+                    frames_out, thumb = _embed_frames(frames, model, thumb_index)
+                    record.update(
+                        {"frames": frames_out, "thumbnail": thumb, "model_id": model["id"]}
+                    )
                 except NotMedia as exc:
                     record.update({"state": "not_media", "reason": str(exc)[:200]})
                 except Unreadable as exc:

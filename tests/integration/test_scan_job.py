@@ -221,3 +221,11 @@ def test_scan_fails_before_recording_anything_when_the_model_is_unavailable(worl
     with pytest.raises(ScanError, match="model"):
         run_scan(ctx_for(reg, folder))
     assert rel_paths(conn, folder) == [] and jobs_db.list_jobs(conn) == []
+
+
+def test_fingerprint_jobs_carry_frame_sampling_params(world):
+    reg, conn, folder, lib = world
+    settings_db.set(conn, "frames.max_per_file", 5)
+    run_scan(ctx_for(reg, folder))
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
+    assert json.loads(job["params"])["frames"] == {"max_per_file": 5, "ffmpeg_timeout_s": 120}

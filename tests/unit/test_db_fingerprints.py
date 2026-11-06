@@ -71,3 +71,17 @@ def test_meta_and_iteration(vconn):
     batches = list(fp.iter_vectors(vconn, M, batch=1))
     assert len(batches) == 2 and all(len(b) == 1 for b in batches)
     assert {bytes(r["file_id"]) for b in batches for r in b} == {A, B}
+
+
+def test_allocate_keys_retires_frames_that_vanished(vconn):
+    """Review Focus 4: re-fingerprinting with fewer frames replaces, never appends."""
+    fid, model = b"v" * 16, "m"
+    fp.replace_frames(vconn, fid, model, [(i, i * 100, b"\x00" * 16) for i in range(4)])
+    first = fp.allocate_keys(vconn, fid, model, [0, 1, 2, 3])
+    assert len(first) == 4 and fp.pending_removals(vconn, model) == []
+    fp.replace_frames(vconn, fid, model, [(i, i * 100, b"\x01" * 16) for i in range(2)])
+    second = fp.allocate_keys(vconn, fid, model, [0, 1])
+    assert second == first[:2]
+    assert fp.pending_removals(vconn, model) == first[2:]
+    assert set(fp.resolve_keys(vconn, first)) == set(first[:2])
+    assert len(fp.frames_of_file(vconn, fid, model)) == 2

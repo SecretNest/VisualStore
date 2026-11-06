@@ -60,6 +60,12 @@ def allocate_keys(
             " WHERE file_id = ? AND model_id = ? AND frame_index = ? AND deleted = 1",
             [(file_id, model_id, i) for i in frame_indices],
         )
+        marks = ",".join("?" * len(frame_indices)) or "NULL"
+        vconn.execute(  # frames that vanished (fewer frames this time) leave the index
+            "UPDATE index_key SET deleted = 1 WHERE file_id = ? AND model_id = ?"
+            f" AND frame_index NOT IN ({marks})",
+            (file_id, model_id, *frame_indices),
+        )
     rows = vconn.execute(
         "SELECT seq, frame_index FROM index_key WHERE file_id = ? AND model_id = ?",
         (file_id, model_id),

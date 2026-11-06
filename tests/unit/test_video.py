@@ -69,3 +69,12 @@ def test_frame_png_returns_a_png(tmp_path):
     clip = make_clip(tmp_path / "c.mp4", 3)
     data = frame_png(str(clip), 1.0, 30)
     assert data.startswith(b"\x89PNG") and pyvips.Image.new_from_buffer(data, "").width == 160
+
+
+def test_oversized_frames_are_refused_before_extraction(tmp_path):
+    clip = make_clip(tmp_path / "c.mp4", 3)
+    with pytest.raises(Unreadable, match="exceeds"):
+        frames_at_times(str(clip), [0.0], 30, 1000)
+    with pytest.raises(Unreadable, match="exceeds"):
+        frames_at_indices(str(clip), [0], 30, 1000, fps=10.0)
+    assert probe(str(clip), 30).width == 160 and probe(str(clip), 30).height == 120
