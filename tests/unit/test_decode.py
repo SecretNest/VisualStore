@@ -65,3 +65,10 @@ def test_truncated_and_oversized_are_unreadable(tmp_path):
 def test_one_by_one_image_decodes(tmp_path):
     d = load_image(write(tmp_path, "dot.png", png_bytes(1, 1)), max_pixels=10)
     assert to_model_input(d, 8, MEAN, STD).shape == (1, 3, 8, 8)
+
+
+def test_option_suffix_in_a_real_file_name_is_not_parsed(tmp_path):
+    """Security review: libvips parses `name[opt=v]`; a file literally named that way must load."""
+    path = write(tmp_path, "tricky.png[page=9]", png_bytes(12, 12))
+    d = load_image(path, max_pixels=10_000_000)
+    assert (d.width, d.height) == (12, 12)

@@ -11,6 +11,13 @@ from visualstore.media.errors import NotMedia, Unreadable
 
 _NOT_MEDIA_MARKERS = ("not a known file format", "is not in a known format", "no loader")
 
+# Media comes from user libraries: refuse libvips loaders that are not hardened against
+# hostile input (pdf, svg, magick, ...). Available since libvips 8.13; older builds just skip it.
+try:
+    pyvips.block_untrusted_set(True)
+except AttributeError:  # pragma: no cover - old libvips
+    pass
+
 
 @dataclass
 class Decoded:
@@ -21,8 +28,10 @@ class Decoded:
 
 def load_image(path: str, max_pixels: int) -> Decoded:
     try:
-        # fail_on="truncated": a cut-off file is an error, not silently padded (design §7.2)
-        img = pyvips.Image.new_from_file(path, access="sequential", fail_on="truncated")
+        # Load through a Source so the file name is never parsed for `[option=value]` suffixes.
+        # fail_on="truncated": a cut-off file is an error, not silently padded (design §7.2).
+        source = pyvips.Source.new_from_file(path)
+        img = pyvips.Image.new_from_source(source, "", access="sequential", fail_on="truncated")
     except pyvips.Error as exc:
         message = str(exc)
         if any(marker in message for marker in _NOT_MEDIA_MARKERS):
