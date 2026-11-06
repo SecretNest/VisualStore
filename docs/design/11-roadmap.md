@@ -21,7 +21,7 @@ Every milestone ends in a running version. Each one gets its own implementation 
 | Reading a million files over SMB is slow | Fingerprint jobs are batched in directory order for sequential reads; full pool on the initialisation machine. Scanning reads directory entries only, never content. |
 | v1 HiddenAndDisconnected labels are noisy | Treat as reference only in evaluation; rely mainly on random clean negatives. |
 | New model still has high false positives, heavy manual review | Start the optional work in §15 and let v1 judgments resolve part of it automatically. |
-| heif / avif support in the arm64 image's libvips | Verify while building the milestone 1 image; if absent, fall back to ffmpeg for heic decoding. |
+| heif / avif support in the arm64 image's libvips | Verified during the first milestone 1 publish (2026-11-06): Debian bookworm libvips 8.14 reports `heifload yes` and `jxlload yes` on both linux/amd64 and linux/arm64. Risk closed; the ffmpeg fallback is not needed. |
 | Automatic deletion of byte-identical groups is irreversible and destructive | Default to the trash directory, not permanent deletion; automatic execution can be turned off in settings. |
 | Paths inconsistent after migration | Folder paths are container paths; keep mount points identical in both compose files; check each Folder's existence at start-up and show a prominent warning on the overview page. |
 | Remote compute needed later | The boundary between the job table and compute is already clean; adding an HTTP endpoint for claiming jobs would not touch anything else. Not done now. |
