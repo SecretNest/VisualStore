@@ -1,0 +1,244 @@
+"""Table-driven job scheduler (design §6).
+
+One coroutine polls every profile's job table, hands compute jobs to the process pool and
+io jobs to a single worker thread, and persists whatever the pool reports. It is the only
+code that moves a job between states while the server is running.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import sqlite3
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+from visualstore.db import jobs as jobs_db
+from visualstore.db import settings as settings_db
+from visualstore.ids import id_from_str, id_to_str
+from visualstore.jobs.compute.handlers import HANDLERS as COMPUTE_HANDLERS
+from visualstore.jobs.compute.protocol import ComputeMessage, ComputeRequest
+from visualstore.profiles import ProfileNotFound, ProfilePaths, ProfileRegistry
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class IoContext:
+    profile: str
+    paths: ProfilePaths
+    backup_dir: Path
+    global_db_path: Path
+    settings: dict
+    params: dict
+    report: Callable[[dict], None]  # thread-safe; may be called from the handler's thread
+
+
+IoHandler = Callable[[IoContext], dict]
+Planner = Callable[[ProfileRegistry], None]
+
+
+class ComputeBackend(Protocol):
+    size: int
+
+    def submit(self, request: ComputeRequest) -> None: ...
+    def poll(self) -> list[ComputeMessage]: ...
+    def alive_count(self) -> int: ...
+
+
+class Scheduler:
+    def __init__(
+        self,
+        registry: ProfileRegistry,
+        pool: ComputeBackend,
+        io_handlers: dict[str, IoHandler],
+        backup_dir: Path,
+        planners: Sequence[Planner] = (),
+        poll_interval: float = 0.5,
+        plan_interval: float = 60.0,
+    ) -> None:
+        self.registry = registry
+        self.pool = pool
+        self.io_handlers = io_handlers
+        self.backup_dir = backup_dir
+        self.planners = list(planners)
+        self.poll_interval = poll_interval
+        self.plan_interval = plan_interval
+        self.in_flight: dict[str, str] = {}  # compute job id (str) -> profile name
+        self._io_task: asyncio.Task | None = None
+        self._loop_task: asyncio.Task | None = None
+        self._last_plan: float | None = None
+
+    # -- lifecycle ---------------------------------------------------------------------
+
+    def requeue_interrupted(self) -> int:
+        total = 0
+        for name in self.registry.names():
+            total += jobs_db.requeue_interrupted(self.registry.conn(name))
+        if total:
+            log.info("requeued %d job(s) interrupted by the previous run", total)
+        return total
+
+    async def start(self) -> None:
+        self._loop_task = asyncio.create_task(self._run(), name="visualstore-scheduler")
+
+    async def stop(self) -> None:
+        if self._loop_task is not None:
+            self._loop_task.cancel()
+            try:
+                await self._loop_task
+            except asyncio.CancelledError:
+                pass
+            self._loop_task = None
+        await self.wait_io()
+
+    async def _run(self) -> None:
+        while True:
+            try:
+                await self.tick()
+            except Exception:  # noqa: BLE001 - the loop must survive any single bad tick
+                log.exception("scheduler tick failed")
+            await asyncio.sleep(self.poll_interval)
+
+    async def tick(self) -> None:
+        self._drain_pool()
+        self._dispatch_compute()
+        self._dispatch_io()
+        self._plan()
+
+    async def wait_io(self) -> None:
+        if self._io_task is not None:
+            await self._io_task
+
+    # -- picking -----------------------------------------------------------------------
+
+    def _pick(self, kind: str) -> tuple[str, sqlite3.Row] | None:
+        best: tuple[tuple[int, str], str, sqlite3.Row] | None = None
+        for name in self.registry.names():
+            row = jobs_db.next_queued(self.registry.conn(name), kind)
+            if row is None:
+                continue
+            key = (-int(row["priority"]), str(row["created_at"]))
+            if best is None or key < best[0]:
+                best = (key, name, row)
+        return None if best is None else (best[1], best[2])
+
+    # -- compute -----------------------------------------------------------------------
+
+    def _dispatch_compute(self) -> None:
+        while len(self.in_flight) < self.pool.size:
+            picked = self._pick("compute")
+            if picked is None:
+                return
+            profile, row = picked
+            conn = self.registry.conn(profile)
+            if row["type"] not in COMPUTE_HANDLERS:
+                jobs_db.mark_failed(conn, row["id"], f"unknown job type {row['type']!r}")
+                continue
+            jobs_db.mark_running(conn, row["id"])
+            job_id = id_to_str(row["id"])
+            self.in_flight[job_id] = profile
+            self.pool.submit(
+                ComputeRequest(
+                    job_id=job_id,
+                    profile=profile,
+                    type=row["type"],
+                    params=json.loads(row["params"]),
+                )
+            )
+
+    def _drain_pool(self) -> None:
+        for msg in self.pool.poll():
+            profile = self.in_flight.get(msg.job_id)
+            if profile is None:
+                continue
+            if msg.kind != "progress":
+                self.in_flight.pop(msg.job_id, None)
+            try:
+                conn = self.registry.conn(profile)
+            except ProfileNotFound:
+                continue  # profile deleted while the job was running
+            job_id = id_from_str(msg.job_id)
+            if msg.kind == "progress":
+                jobs_db.set_progress(conn, job_id, msg.payload)
+            elif msg.kind == "result":
+                self._finish(conn, job_id, msg.payload)
+            else:
+                jobs_db.record_failure(conn, job_id, msg.payload.get("error", "unknown error"))
+
+    @staticmethod
+    def _finish(conn: sqlite3.Connection, job_id: bytes, result: dict) -> None:
+        row = jobs_db.get(conn, job_id)
+        if row is None:
+            return
+        progress = json.loads(row["progress"])
+        progress["result"] = result
+        jobs_db.set_progress(conn, job_id, progress)
+        jobs_db.mark_done(conn, job_id)
+
+    # -- io ----------------------------------------------------------------------------
+
+    def _dispatch_io(self) -> None:
+        if self._io_task is not None and not self._io_task.done():
+            return
+        self._io_task = None
+        while True:
+            picked = self._pick("io")
+            if picked is None:
+                return
+            profile, row = picked
+            conn = self.registry.conn(profile)
+            handler = self.io_handlers.get(row["type"])
+            if handler is None:
+                jobs_db.mark_failed(conn, row["id"], f"unknown job type {row['type']!r}")
+                continue
+            jobs_db.mark_running(conn, row["id"])
+            self._io_task = asyncio.create_task(
+                self._run_io(profile, row["id"], row["type"], json.loads(row["params"]), handler)
+            )
+            return
+
+    async def _run_io(
+        self, profile: str, job_id: bytes, type_: str, params: dict, handler: IoHandler
+    ) -> None:
+        conn = self.registry.conn(profile)
+        loop = asyncio.get_running_loop()
+
+        def report(progress: dict) -> None:
+            loop.call_soon_threadsafe(jobs_db.set_progress, conn, job_id, progress)
+
+        ctx = IoContext(
+            profile=profile,
+            paths=self.registry.paths(profile),
+            backup_dir=self.backup_dir,
+            global_db_path=self.registry.global_db_path,
+            settings=settings_db.all(conn),
+            params=params,
+            report=report,
+        )
+        try:
+            result = await asyncio.to_thread(handler, ctx)
+        except Exception as exc:  # noqa: BLE001 - recorded on the job, never propagated
+            log.warning("io job %s (%s) failed: %s", id_to_str(job_id), type_, exc)
+            if self.registry.exists(profile):
+                jobs_db.record_failure(conn, job_id, f"{type(exc).__name__}: {exc}")
+            return
+        if self.registry.exists(profile):
+            self._finish(conn, job_id, result)
+
+    # -- planners ----------------------------------------------------------------------
+
+    def _plan(self) -> None:
+        now = time.monotonic()
+        if self._last_plan is not None and now - self._last_plan < self.plan_interval:
+            return
+        self._last_plan = now
+        for planner in self.planners:
+            try:
+                planner(self.registry)
+            except Exception:  # noqa: BLE001
+                log.exception("planner %r failed", planner)
