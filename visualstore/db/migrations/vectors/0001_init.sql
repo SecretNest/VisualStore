@@ -1,0 +1,2 @@
+-- vectors.db is created in milestone 1 so that backups and migration can be exercised.
+-- The fingerprint table arrives in milestone 3 as migration 0002.
