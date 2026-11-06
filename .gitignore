@@ -1,0 +1,62 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Frontend (web/) ---
+node_modules/
+web/dist/
+web/.vite/
+visualstore/static/
+*.tsbuildinfo
+test-results/
+playwright-report/
+blob-report/
+
+# --- Runtime data (never commit library data) ---
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
+*.usearch
+thumbs/
+.visualstore-trash/
+
+# --- Models (downloaded or exported, shipped via image or release) ---
+models/*.onnx
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# --- Environment and secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Editors and OS ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Agent tooling: one documentation tree only (see docs/decisions/0002) ---
+docs/superpowers/
+.claude/*
+!.claude/settings.json
