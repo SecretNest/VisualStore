@@ -15,7 +15,13 @@ jobs:
         with:
           enable-cache: true
       - name: System libraries for media tests
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips42 ffmpeg
+        run: |
+          # GitHub runners occasionally hang in apt; bound each attempt and retry.
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get update && timeout 240 sudo apt-get install -y --no-install-recommends libvips42 ffmpeg; then exit 0; fi
+            echo "apt attempt $attempt failed; retrying"; sleep 15
+          done
+          exit 1
       - name: Install
         run: uv sync --frozen
       - name: Lint
@@ -69,7 +75,13 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: System libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips42 ffmpeg
+        run: |
+          # GitHub runners occasionally hang in apt; bound each attempt and retry.
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get update && timeout 240 sudo apt-get install -y --no-install-recommends libvips42 ffmpeg; then exit 0; fi
+            echo "apt attempt $attempt failed; retrying"; sleep 15
+          done
+          exit 1
       - name: Install
         run: uv sync --frozen && cd web && npm ci
       - name: Playwright version
