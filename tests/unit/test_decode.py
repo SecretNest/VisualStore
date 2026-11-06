@@ -57,7 +57,9 @@ def test_truncated_and_oversized_are_unreadable(tmp_path):
             write(tmp_path, "cut.png", truncated(png_bytes(200, 200))), max_pixels=10_000_000
         )
     with pytest.raises(Unreadable, match="pixels"):
-        load_image(write(tmp_path, "huge.png", png_header_only(20000, 20000)), max_pixels=1_000_000)
+        load_image(write(tmp_path, "big.png", png_bytes(200, 200)), max_pixels=1_000)
+    with pytest.raises(Unreadable):  # a header announcing 20000x20000 with no pixel data
+        load_image(write(tmp_path, "header.png", png_header_only(20000, 20000)), max_pixels=10**9)
 
 
 def test_one_by_one_image_decodes(tmp_path):
