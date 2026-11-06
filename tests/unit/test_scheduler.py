@@ -222,3 +222,10 @@ async def test_job_held_by_a_dead_worker_is_requeued(registry, scheduler, pool):
     assert "compute worker died" in row["error"]
     assert row["state"] == "running" and len(pool.submitted) == 2  # requeued and re-dispatched
     assert req.job_id not in scheduler.in_flight_pid
+
+
+async def test_tick_records_a_heartbeat(registry, pool):
+    sched = Scheduler(registry, pool, io_handlers={}, backup_dir=registry.data_dir / "bk")
+    assert sched.last_tick is None and sched.heartbeat_age() is None
+    await sched.tick()
+    assert sched.last_tick is not None and sched.heartbeat_age() < 1.0

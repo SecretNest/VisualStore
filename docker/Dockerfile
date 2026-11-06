@@ -50,6 +50,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
     VISUALSTORE_PORT=8080
 VOLUME ["/data", "/backups"]
 EXPOSE 8080
+# Liveness: HTTP answers and the scheduler loop has ticked recently (ADR-0008); no curl in slim.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD python -c "import os, sys, urllib.request; port = os.environ.get('VISUALSTORE_PORT', '8080'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/api/system/health', timeout=4).status == 200 else 1)"
 CMD ["python", "-m", "visualstore"]
 
 # ---- test stage: runtime plus dev dependencies, project installed editable so the source

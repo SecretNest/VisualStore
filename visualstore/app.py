@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -50,6 +51,7 @@ class AppState:
     scheduler: Scheduler
     signer: SessionSigner
     limiter: LoginRateLimiter
+    started_at: float = 0.0  # monotonic clock at start-up, for the health probe
 
 
 def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
@@ -92,6 +94,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
             scheduler=scheduler,
             signer=signer,
             limiter=LoginRateLimiter(),
+            started_at=time.monotonic(),
         )
         try:
             yield
@@ -116,6 +119,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
 
     app.include_router(auth_api.router)
     app.include_router(system_api.router)
+    app.include_router(system_api.health_router)
     app.include_router(profiles_api.router)
     app.include_router(jobs_api.router)
     app.include_router(settings_api.router)

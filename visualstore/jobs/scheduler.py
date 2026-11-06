@@ -92,6 +92,7 @@ class Scheduler:
         self._io_task: asyncio.Task | None = None
         self._loop_task: asyncio.Task | None = None
         self._last_plan: float | None = None
+        self.last_tick: float | None = None  # monotonic time of the last completed tick
 
     # -- lifecycle ---------------------------------------------------------------------
 
@@ -129,6 +130,11 @@ class Scheduler:
         self._dispatch_compute()
         self._dispatch_io()
         self._plan()
+        self.last_tick = time.monotonic()
+
+    def heartbeat_age(self) -> float | None:
+        """Seconds since the last completed tick; None before the first one (health check)."""
+        return None if self.last_tick is None else time.monotonic() - self.last_tick
 
     async def wait_io(self) -> None:
         if self._io_task is not None:
