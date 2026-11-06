@@ -5,7 +5,7 @@ import Compare from "../components/Compare";
 import Thumb from "../components/Thumb";
 import { formatBytes } from "../format";
 import type { Decision, Group, GroupDetail as Detail } from "../types";
-import { applyKey, compareTarget, type KeyState } from "./groupKeys";
+import { applyKey, compareTarget, selectMember, type KeyState } from "./groupKeys";
 
 export default function GroupDetail() {
   const { name = "", groupId = "" } = useParams();
@@ -169,7 +169,7 @@ export default function GroupDetail() {
               <li
                 key={m.file_id}
                 className={classes.join(" ")}
-                onClick={() => setKeys({ ...keys, selected: i })}
+                onClick={() => setKeys(selectMember(keys, i))}
               >
                 <div>
                   <Thumb name={name} fileId={m.file_id} size={64} />

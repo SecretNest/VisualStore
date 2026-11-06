@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyKey, compareTarget, type KeyState } from "./groupKeys";
+import { applyKey, compareTarget, selectMember, type KeyState } from "./groupKeys";
 
 const base: KeyState = {
   members: [
@@ -81,5 +81,13 @@ describe("comparison keys", () => {
     expect(compareTarget(withMode, 1)).toBe(1);
     expect(compareTarget({ ...withMode, target: 2 }, 1)).toBe(2);
     expect(compareTarget(withMode, null)).toBeNull();
+  });
+});
+
+describe("selectMember", () => {
+  it("selects and resets the comparison target, like the digit keys", () => {
+    const state: KeyState = { ...base, mode: "side", target: 2 };
+    expect(selectMember(state, 1)).toEqual({ ...state, selected: 1, target: null });
+    expect(selectMember(state, 9)).toEqual(state); // out of range: unchanged
   });
 });

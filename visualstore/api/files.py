@@ -18,12 +18,14 @@ from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db import pairs as pairs_db
 from visualstore.db import settings as settings_db
-from visualstore.domain.paths import normalise_relative
+from visualstore.domain.paths import TRASH_DIR, normalise_relative
 from visualstore.ids import id_to_str
 from visualstore.jobs.types import PRIORITY_USER
 from visualstore.media.errors import NotMedia, Unreadable
 
 PREVIEW_PX = 1024
+_RENDER_SLOTS = asyncio.Semaphore(2)  # bounds the decoded pixels held by the server at once
+_RENDERING: dict[Path, asyncio.Lock] = {}  # one render per file; later requests reuse the cache
 
 router = APIRouter(
     prefix="/api/p/{name}/files", tags=["files"], dependencies=[Depends(require_auth)]
@@ -119,14 +121,25 @@ async def file_preview(
     from visualstore.media.decode import preview_webp  # pyvips: not imported server-wide
 
     max_pixels = int(settings_db.get(conn, "media.max_pixels"))
+    lock = _RENDERING.setdefault(cache, asyncio.Lock())
     try:
-        data = await asyncio.to_thread(preview_webp, str(path), PREVIEW_PX, max_pixels)
-    except (NotMedia, Unreadable) as exc:
-        raise HTTPException(status_code=404, detail=f"Cannot decode the file: {exc}") from None
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    tmp = cache.with_suffix(".tmp")
-    tmp.write_bytes(data)
-    tmp.replace(cache)
+        async with lock:
+            if cache.is_file():  # rendered by the request that held the lock before us
+                return FileResponse(cache, media_type="image/webp")
+            async with _RENDER_SLOTS:
+                try:
+                    data = await asyncio.to_thread(preview_webp, str(path), PREVIEW_PX, max_pixels)
+                except (NotMedia, Unreadable) as exc:
+                    raise HTTPException(
+                        status_code=404, detail=f"Cannot decode the file: {exc}"
+                    ) from None
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(cache)
+    finally:
+        if not lock.locked() and _RENDERING.get(cache) is lock:
+            _RENDERING.pop(cache, None)
     return FileResponse(cache, media_type="image/webp")
 
 
@@ -153,6 +166,20 @@ class Rename(BaseModel):
 def _check_name(name: str) -> None:
     if not name or name in (".", "..") or "/" in name or "\\" in name:
         raise HTTPException(status_code=400, detail="The name must be a single path component.")
+    if name == TRASH_DIR:
+        raise HTTPException(status_code=400, detail="That name is reserved for the trash.")
+
+
+def _check_directory(directory: str) -> str:
+    try:
+        directory = normalise_relative(directory)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    if TRASH_DIR in directory.split("/"):
+        raise HTTPException(
+            status_code=400, detail="Files cannot be moved into the trash directory."
+        )
+    return directory
 
 
 def _check_free(conn, folder, directory: str, name: str, file_id: bytes) -> None:
@@ -176,10 +203,7 @@ async def move_file_endpoint(
     conn = get_state(request).registry.conn(name)
     fid = parse_id(file_id)
     row, _ = _file_and_folder(conn, fid)
-    try:
-        directory = normalise_relative(body.directory)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+    directory = _check_directory(body.directory)
     target = folders_db.get_folder(conn, parse_id(body.folder_id))
     if target is None:
         raise HTTPException(status_code=404, detail="No such Folder.")

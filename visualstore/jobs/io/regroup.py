@@ -11,7 +11,7 @@ from visualstore.db import jobs as jobs_db
 from visualstore.db import pairs as pairs_db
 from visualstore.db.groups import NewGroup
 from visualstore.domain.grouping import Component, PairEdge, components
-from visualstore.domain.resolution import Member, preselect
+from visualstore.domain.resolution import Member, preselect, propagate_keep
 from visualstore.ids import id_to_str
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_INBOX
@@ -153,15 +153,7 @@ def run_regroup(ctx: IoContext) -> dict:
                     if kept_edges:
                         # A human said "keep both" for these pairs: propagate keep along them
                         # and never execute such a group automatically (final review C2).
-                        decisions = dict(decisions)
-                        changed = True
-                        while changed:
-                            changed = False
-                            for e in kept_edges:
-                                for x, y in ((e.a, e.b), (e.b, e.a)):
-                                    if decisions.get(x) == "keep" and decisions.get(y) != "keep":
-                                        decisions[y] = "keep"
-                                        changed = True
+                        decisions = propagate_keep(decisions, [(e.a, e.b) for e in kept_edges])
                         status, auto = "open", False
                 if auto:
                     to_execute.append(len(new_groups))

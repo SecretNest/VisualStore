@@ -227,3 +227,17 @@ def test_job_skips_groups_whose_members_or_rules_changed(world):
     assert (
         files.get_file(conn, ids["i4"]) is not None and files.get_file(conn, ids["i1"]) is not None
     )
+
+
+def test_groups_with_a_related_keep_judgment_that_overrides_the_rules_are_skipped(world):
+    """Final review C1."""
+    client, conn, ids = world["client"], world["conn"], world["ids"]
+    pairs.set_judgment(conn, ids["a1"], ids["i1"], "related_keep", "user")  # keep both
+    p = client.post("/api/p/a/groups/bulk/preview", json={}).json()
+    assert p["planned"] == 1 and p["skipped"] == 2 and p["files_to_delete"] == 1
+    job = client.post("/api/p/a/groups/bulk/execute", json={"token": p["token"]})
+    done = wait_for(client, "a", job.json()["id"])
+    assert done["progress"]["result"]["trashed"] == 1
+    assert (
+        files.get_file(conn, ids["i1"]) is not None and files.get_file(conn, ids["i2"]) is not None
+    )

@@ -245,6 +245,8 @@ def _relocate(
         directory = normalise_relative(directory)
     except ValueError:
         return "bad name"
+    if TRASH_DIR in (*directory.split("/"), name):
+        return "bad name"  # the trash tree is not scanned: the file would vanish from the library
     source_folder = folders_db.get_folder(conn, bytes(row["folder_id"]))
     src = Path(source_folder["path"]) / files_db.relative_path(row["directory"], row["name"])
     if not src.is_file():

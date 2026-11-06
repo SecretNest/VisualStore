@@ -24,6 +24,10 @@ function withDecision(state: KeyState, decision: Decision): KeyState {
   };
 }
 
+export function selectMember(state: KeyState, index: number): KeyState {
+  return index >= 0 && index < state.members.length ? { ...state, selected: index, target: null } : state;
+}
+
 export function compareTarget(state: KeyState, nearest: number | null): number | null {
   return state.target ?? nearest;
 }
@@ -42,8 +46,7 @@ function cycleTarget(state: KeyState, nearest: number | null, step: 1 | -1): Key
 
 export function applyKey(state: KeyState, key: string, nearest: number | null = null): KeyState | KeyAction {
   if (/^[1-9]$/.test(key)) {
-    const index = Number(key) - 1;
-    return index < state.members.length ? { ...state, selected: index, target: null } : state;
+    return selectMember(state, Number(key) - 1);
   }
   switch (key) {
     case "ArrowDown":

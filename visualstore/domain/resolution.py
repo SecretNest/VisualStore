@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from visualstore.domain.paths import path_key
@@ -60,3 +60,21 @@ def preselect(
 
     status = "auto_resolved" if auto else "open"
     return Preselection(decisions=decisions, status=status, auto_executable=auto)
+
+
+def propagate_keep(
+    decisions: dict[bytes, str], kept_edges: Iterable[tuple[bytes, bytes]]
+) -> dict[bytes, str]:
+    """A human said "keep both" for each kept edge: spread `keep` along them. Returns a new
+    dict; the input is untouched."""
+    out = dict(decisions)
+    edges = list(kept_edges)
+    changed = True
+    while changed:
+        changed = False
+        for a, b in edges:
+            for x, y in ((a, b), (b, a)):
+                if out.get(x) == "keep" and out.get(y) != "keep":
+                    out[y] = "keep"
+                    changed = True
+    return out

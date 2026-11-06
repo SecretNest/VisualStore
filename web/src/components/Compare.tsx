@@ -2,16 +2,22 @@ import { useEffect, useState } from "react";
 import type { CompareMode } from "../pages/groupKeys";
 import { layers } from "./compareLayout";
 
-function PreviewImage({ name, fileId, opacity, onFallback }: { name: string; fileId: string; opacity: number; onFallback: (id: string) => void }) {
+function PreviewImage({ name, fileId, opacity, shown, onFallback }: { name: string; fileId: string; opacity: number; shown: boolean; onFallback: (id: string) => void }) {
   const [source, setSource] = useState<"preview" | "thumbnail" | "none">("preview");
   useEffect(() => setSource("preview"), [fileId]);
-  if (source === "none") return <div className="preview preview-missing">No image available</div>;
+  const style = { opacity, visibility: shown ? "visible" : "hidden" } as const;
+  if (source === "none")
+    return (
+      <div className="preview preview-missing" style={style}>
+        No image available
+      </div>
+    );
   const path = source === "preview" ? "preview" : "thumbnail";
   return (
     <img
       className={`preview preview-${source}`}
       alt=""
-      style={{ opacity }}
+      style={style}
       src={`/api/p/${name}/files/${fileId}/${path}`}
       onError={() => {
         if (source === "preview") {
@@ -38,8 +44,8 @@ export default function Compare({ name, leftId, rightId, mode }: { name: string;
   return (
     <div className={`compare compare-${mode}${l.stacked ? " compare-stacked" : ""}`} data-tick={tick}>
       <div className="compare-images">
-        {l.left.shown && <PreviewImage name={name} fileId={leftId} opacity={l.left.opacity} onFallback={note} />}
-        {rightId && l.right.shown && <PreviewImage name={name} fileId={rightId} opacity={l.right.opacity} onFallback={note} />}
+        <PreviewImage name={name} fileId={leftId} opacity={l.left.opacity} shown={l.left.shown} onFallback={note} />
+        {rightId && <PreviewImage name={name} fileId={rightId} opacity={l.right.opacity} shown={l.right.shown} onFallback={note} />}
       </div>
       {mode === "overlay" && rightId && (
         <label className="inline-label">

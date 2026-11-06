@@ -63,3 +63,36 @@ def test_build_plan_counts_and_tokens():
     assert plan.token != build_plan(3, [p1]).token
     empty = build_plan(0, [])
     assert empty.groups == () and empty.files_to_delete == 0 and empty.token
+
+
+def test_a_related_keep_edge_that_overrides_the_rules_makes_the_group_skipped():
+    """Final review C1: a human said keep both; bulk must not delete one of them."""
+    members = [
+        m(b"1" * 16, ARCH, "archive", "a.jpg"),
+        m(b"2" * 16, INBOX, "inbox", "b.jpg"),
+        m(b"3" * 16, INBOX, "inbox", "c.jpg"),
+    ]
+    assert (
+        plan_group(G, members, NAMES, all_identical=False, kept_edges=[(b"1" * 16, b"2" * 16)])
+        is None
+    )
+    # an edge between two members the rules keep anyway changes nothing
+    two_archives = [
+        m(b"1" * 16, ARCH, "archive", "a.jpg"),
+        m(b"4" * 16, ARCH, "archive", "d.jpg"),
+        m(b"2" * 16, INBOX, "inbox", "b.jpg"),
+    ]
+    plan = plan_group(
+        G, two_archives, NAMES, all_identical=False, kept_edges=[(b"1" * 16, b"4" * 16)]
+    )
+    assert plan is not None and plan.delete == (b"2" * 16,)
+
+
+def test_token_changes_when_the_delete_set_changes_for_the_same_members():
+    """Final review I2: a Folder role change between preview and execute must invalidate the token."""
+    a, b = m(b"1" * 16, ARCH, "archive", "a.jpg"), m(b"2" * 16, INBOX, "inbox", "b.jpg")
+    before = build_plan(1, [plan_group(G, [a, b], NAMES, all_identical=False)])
+    swapped = [m(b"1" * 16, INBOX, "inbox", "a.jpg"), m(b"2" * 16, ARCH, "archive", "b.jpg")]
+    after = build_plan(1, [plan_group(G, swapped, NAMES, all_identical=False)])
+    assert before.groups[0].signature == after.groups[0].signature
+    assert before.token != after.token

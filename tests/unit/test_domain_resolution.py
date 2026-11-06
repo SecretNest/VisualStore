@@ -61,3 +61,13 @@ def test_non_identical_groups_are_preselected_but_manual():
     p = preselect(members, all_identical=False, auto_execute_identical=True)
     assert p.decisions[members[1].file_id] == "delete"
     assert p.status == "open" and not p.auto_executable
+
+
+def test_propagate_keep_spreads_keep_along_kept_edges():
+    from visualstore.domain.resolution import propagate_keep
+
+    decisions = {b"a": "keep", b"b": "delete", b"c": "delete", b"d": "delete"}
+    out = propagate_keep(decisions, [(b"a", b"b"), (b"b", b"c"), (b"d", b"d")])
+    assert out == {b"a": "keep", b"b": "keep", b"c": "keep", b"d": "delete"}
+    assert decisions[b"b"] == "delete"  # input untouched
+    assert propagate_keep(decisions, []) == decisions

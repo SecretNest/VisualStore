@@ -80,3 +80,34 @@ def test_preview_failures_are_404_with_a_reason(client, tmp_path):
     assert (
         client.get("/api/p/a/files/00000000-0000-4000-8000-000000000000/preview").status_code == 404
     )
+
+
+def test_concurrent_requests_render_an_uncached_preview_once(client, tmp_path, monkeypatch):
+    """Final review I4: the second request waits for the first render and serves the cache."""
+    import threading
+    import time
+
+    import visualstore.media.decode as decode
+
+    reg, lib, add = seed(client, tmp_path)
+    fid = id_to_str(add("big.png", png_bytes(800, 600, gradient=True)))
+    calls = []
+    real = decode.preview_webp
+
+    def slow(path, longest, max_pixels):
+        calls.append(path)
+        time.sleep(0.5)
+        return real(path, longest, max_pixels)
+
+    monkeypatch.setattr(decode, "preview_webp", slow)
+    results = []
+
+    def fetch():
+        results.append(client.get(f"/api/p/a/files/{fid}/preview").status_code)
+
+    threads = [threading.Thread(target=fetch) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results == [200, 200, 200] and len(calls) == 1

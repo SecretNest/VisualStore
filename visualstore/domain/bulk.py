@@ -6,7 +6,7 @@ import hashlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from visualstore.domain.resolution import Member, preselect
+from visualstore.domain.resolution import Member, preselect, propagate_keep
 
 
 def signature(member_ids: Iterable[bytes]) -> str:
@@ -39,19 +39,24 @@ def plan_group(
     folder_names: dict[bytes, str],
     *,
     all_identical: bool,
+    kept_edges: Iterable[tuple[bytes, bytes]] = (),
 ) -> GroupPlan | None:
-    """The default resolution for one group, or None when the rules leave a member undecided or
-    nothing to delete: such groups are skipped by a bulk run (Global Constraints)."""
+    """The default resolution for one group, or None when the rules leave a member undecided,
+    delete nothing, or would delete an end of a `related_keep` edge (a human said keep both):
+    such groups are skipped by a bulk run (Global Constraints)."""
     pre = preselect(members, all_identical=all_identical, auto_execute_identical=False)
     if any(d == "undecided" for d in pre.decisions.values()):
         return None
+    decisions = propagate_keep(pre.decisions, kept_edges)
+    if decisions != pre.decisions:
+        return None
     order = sorted(members, key=lambda m: m.relative_path)
-    delete = tuple(m.file_id for m in order if pre.decisions[m.file_id] == "delete")
-    keep = tuple(m.file_id for m in order if pre.decisions[m.file_id] == "keep")
+    delete = tuple(m.file_id for m in order if decisions[m.file_id] == "delete")
+    keep = tuple(m.file_id for m in order if decisions[m.file_id] == "keep")
     if not delete:
         return None
     folders = tuple(
-        sorted({folder_names[m.folder_id] for m in members if pre.decisions[m.file_id] == "delete"})
+        sorted({folder_names[m.folder_id] for m in members if decisions[m.file_id] == "delete"})
     )
     return GroupPlan(group_id, signature(m.file_id for m in members), delete, keep, folders)
 
@@ -59,7 +64,9 @@ def plan_group(
 def build_plan(matched: int, plans: Iterable[GroupPlan | None]) -> BulkPlan:
     plans = list(plans)
     groups = tuple(sorted((p for p in plans if p is not None), key=lambda p: p.group_id))
-    token_source = "\n".join(f"{p.group_id.hex()}:{p.signature}" for p in groups)
+    token_source = "\n".join(
+        f"{p.group_id.hex()}:{p.signature}:{','.join(d.hex() for d in p.delete)}" for p in groups
+    )
     return BulkPlan(
         groups=groups,
         matched=matched,

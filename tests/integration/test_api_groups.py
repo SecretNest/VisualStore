@@ -210,6 +210,10 @@ def test_move_and_rename_endpoints_validate_and_queue(client, seeded):
         f"/api/p/a/files/{b}/move", json={"folder_id": arch, "directory": "../up"}
     )
     assert bad_dir.status_code == 400
+    into_trash = client.post(
+        f"/api/p/a/files/{b}/move", json={"folder_id": arch, "directory": ".visualstore-trash/x"}
+    )
+    assert into_trash.status_code == 400
     nowhere = client.post(
         f"/api/p/a/files/{b}/move",
         json={"folder_id": "00000000-0000-4000-8000-000000000000", "directory": ""},

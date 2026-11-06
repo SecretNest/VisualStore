@@ -328,3 +328,29 @@ def test_rename_and_move_never_overwrite(world):
         )
     )
     assert result["skipped"] == [{"id": id_to_str(a), "reason": "no such folder"}]
+
+
+def test_move_into_the_trash_directory_is_refused(world):
+    """Final review I3."""
+    reg, conn, folder, lib, add = world
+    a = add("a.jpg", b"aaa")
+    result = run_apply_action(
+        ctx_for(
+            reg,
+            {
+                "move": [
+                    {
+                        "file_id": id_to_str(a),
+                        "folder_id": id_to_str(folder),
+                        "directory": ".visualstore-trash/2026-11",
+                    }
+                ]
+            },
+        )
+    )
+    assert result["skipped"] == [{"id": id_to_str(a), "reason": "bad name"}]
+    assert (lib / "a.jpg").exists()
+    result = run_apply_action(
+        ctx_for(reg, {"rename": [{"file_id": id_to_str(a), "name": ".visualstore-trash"}]})
+    )
+    assert result["skipped"] == [{"id": id_to_str(a), "reason": "bad name"}]
