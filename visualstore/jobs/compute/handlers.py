@@ -11,6 +11,7 @@ import hashlib
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 
@@ -120,8 +121,40 @@ def fingerprint(params: dict, report: Report) -> dict:
     return {"files": out}
 
 
+def match(params: dict, report: Report) -> dict:
+    """Add a batch of vectors to the profile index and return raw neighbour hits (design §7.4).
+    The sink applies compare scope and writes pairs; this function never sees the database."""
+    from visualstore.index.usearch_index import VectorIndex
+
+    model = params["model"]
+    dim = int(model["dim"])
+    index_path = Path(params["index_path"])
+    index = VectorIndex.open_or_create(index_path, dim)
+    removed = index.remove([int(s) for s in params.get("remove", [])])
+    entries = params.get("entries", [])
+    keys = [int(e["seq"]) for e in entries]
+    decoded = [
+        np.frombuffer(base64.b64decode(e["vector"]), dtype=np.float16).astype(np.float32)
+        for e in entries
+    ]
+    vectors = np.array(decoded, dtype=np.float32).reshape(len(entries), dim)
+    index.add(keys, vectors)
+    index.save(index_path)
+    limit = float(params.get("candidate_distance", 0.5))
+    top_k = int(params.get("top_k", 64))
+    hits: list[list] = []
+    for i, key in enumerate(keys):
+        for hit_key, distance in index.search(vectors[i], top_k):
+            if hit_key != key and distance <= limit:
+                hits.append([key, hit_key, round(distance, 6)])
+        if (i + 1) % 16 == 0 or i + 1 == len(keys):
+            report({"done": i + 1, "total": len(keys), "message": f"{len(hits)} hits"})
+    return {"hits": hits, "added": len(keys), "removed": removed, "count": index.count}
+
+
 HANDLERS: dict[str, Handler] = {
     "ping": ping,
     "fail": fail,
     "fingerprint": fingerprint,
+    "match": match,
 }

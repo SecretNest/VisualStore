@@ -134,3 +134,59 @@ def sink_fingerprint(ctx: SinkContext) -> None:
 
 
 RESULT_SINKS["fingerprint"] = sink_fingerprint
+
+
+def sink_match(ctx: SinkContext) -> None:
+    from visualstore.db import fingerprints as fp
+    from visualstore.db import groups as groups_db
+    from visualstore.db import jobs as jobs_db
+    from visualstore.db import pairs as pairs_db
+    from visualstore.domain.scope import ScopeInfo, allowed
+    from visualstore.jobs.types import PRIORITY_INBOX
+
+    conn, vconn = ctx.conn, ctx.vconn
+    model = ctx.params["model"]
+    hits = ctx.result.get("hits", [])
+    seqs = {int(h[0]) for h in hits} | {int(h[1]) for h in hits}
+    owner = fp.resolve_keys(vconn, seqs)
+    best: dict[tuple[bytes, bytes], float] = {}
+    for q, h, distance in hits:
+        a = owner.get(int(q))
+        b = owner.get(int(h))
+        if a is None or b is None or a[0] == b[0]:
+            continue
+        key = tuple(sorted((a[0], b[0])))
+        if key not in best or distance < best[key]:
+            best[key] = float(distance)
+    involved = {f for pair in best for f in pair}
+    scopes: dict[bytes, ScopeInfo] = {}
+    if involved:
+        marks = ",".join("?" * len(involved))
+        rows = conn.execute(
+            "SELECT f.id, f.folder_id, f.directory, fo.compare_scope FROM file f"
+            f" JOIN folder fo ON fo.id = f.folder_id WHERE f.id IN ({marks})",
+            list(involved),
+        )
+        for r in rows:
+            scopes[bytes(r["id"])] = ScopeInfo(
+                bytes(r["folder_id"]), r["directory"], r["compare_scope"]
+            )
+    dirty: set[bytes] = set()
+    for (a, b), distance in best.items():
+        if a not in scopes or b not in scopes or not allowed(scopes[a], scopes[b]):
+            continue
+        pairs_db.upsert_vector_pair(conn, a, b, distance, model["id"])
+        dirty.update((a, b))
+    if dirty:
+        groups_db.mark_dirty(conn, dirty)
+        if not jobs_db.has_active(conn, "regroup"):
+            jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
+    removed = [int(s) for s in ctx.params.get("remove", [])]
+    if removed:
+        fp.drop_keys(vconn, removed)
+    if fp.get_meta(vconn, "model_id") is None:
+        fp.set_meta(vconn, "model_id", model["id"])
+        fp.set_meta(vconn, "dim", str(int(model["dim"])))
+
+
+RESULT_SINKS["match"] = sink_match

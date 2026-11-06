@@ -25,6 +25,24 @@ def upsert_sha1_pair(conn: sqlite3.Connection, a: bytes, b: bytes) -> None:
         )
 
 
+def upsert_vector_pair(
+    conn: sqlite3.Connection, a: bytes, b: bytes, distance: float, model_id: str
+) -> None:
+    """Insert or refresh a vector pair; byte-identical pairs keep distance 0 and source sha1."""
+    fa, fb = ordered(a, b)
+    with conn:
+        conn.execute(
+            "INSERT INTO pair (file_a, file_b, distance, source, model_id)"
+            " VALUES (?, ?, ?, 'vector', ?)"
+            " ON CONFLICT(file_a, file_b) DO UPDATE SET"
+            " distance = CASE WHEN pair.source = 'sha1' THEN pair.distance"
+            " ELSE excluded.distance END,"
+            " model_id = CASE WHEN pair.source = 'sha1' THEN pair.model_id"
+            " ELSE excluded.model_id END",
+            (fa, fb, distance, model_id),
+        )
+
+
 def set_judgment(conn: sqlite3.Connection, a: bytes, b: bytes, judgment: str, origin: str) -> bool:
     if judgment not in JUDGMENTS:
         raise ValueError(f"judgment must be one of {JUDGMENTS}")
