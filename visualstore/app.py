@@ -20,10 +20,12 @@ from visualstore.api import files as files_api
 from visualstore.api import folders as folders_api
 from visualstore.api import groups as groups_api
 from visualstore.api import jobs as jobs_api
+from visualstore.api import operations as operations_api
 from visualstore.api import overview as overview_api
 from visualstore.api import profiles as profiles_api
 from visualstore.api import settings as settings_api
 from visualstore.api import system as system_api
+from visualstore.api import trash as trash_api
 from visualstore.auth import LoginRateLimiter, SessionSigner
 from visualstore.config import Config
 from visualstore.db.folders import FolderError
@@ -114,6 +116,8 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(folders_api.router)
     app.include_router(groups_api.router)
     app.include_router(files_api.router)
+    app.include_router(trash_api.router)
+    app.include_router(operations_api.router)
     _mount_static(app, static_dir or DEFAULT_STATIC_DIR)
     return app
 
