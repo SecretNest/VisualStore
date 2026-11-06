@@ -15,10 +15,15 @@ describe("api", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("throws Unauthorized on 401", async () => {
-    await expect(
-      api("/api/x", {}, fakeFetch(401, { detail: "Not logged in." })),
-    ).rejects.toBeInstanceOf(Unauthorized);
+  it("throws Unauthorized on 401, keeping the server's detail", async () => {
+    const promise = api("/api/x", {}, fakeFetch(401, { detail: "Wrong password." }));
+    await expect(promise).rejects.toBeInstanceOf(Unauthorized);
+    await expect(promise).rejects.toMatchObject({ status: 401, message: "Wrong password." });
+  });
+
+  it("Unauthorized falls back to a generic message when the body has no detail", async () => {
+    const promise = api("/api/x", {}, fakeFetch(401, undefined));
+    await expect(promise).rejects.toMatchObject({ status: 401, message: "Not logged in." });
   });
 
   it("throws ApiError carrying the server detail", async () => {

@@ -8,8 +8,17 @@ export class ApiError extends Error {
 }
 
 export class Unauthorized extends ApiError {
-  constructor() {
-    super(401, "Not logged in.");
+  constructor(message = "Not logged in.") {
+    super(401, message);
+  }
+}
+
+async function detailOf(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    return body.detail === undefined ? undefined : String(body.detail);
+  } catch {
+    return undefined; // body was not JSON
   }
 }
 
@@ -23,16 +32,9 @@ export async function api<T>(
     ...init,
     headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
-  if (response.status === 401) throw new Unauthorized();
+  if (response.status === 401) throw new Unauthorized(await detailOf(response));
   if (!response.ok) {
-    let detail: string = response.statusText;
-    try {
-      const body = (await response.json()) as { detail?: unknown };
-      if (body.detail !== undefined) detail = String(body.detail);
-    } catch {
-      /* body was not JSON; keep the status text */
-    }
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, (await detailOf(response)) ?? response.statusText);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
