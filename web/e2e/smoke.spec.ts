@@ -61,6 +61,15 @@ test("switch model, scan a folder, resolve the identical group, restore from tra
   await expect(page.getByRole("row", { name: /2 files/ })).toContainText("identical");
   await page.getByRole("link", { name: "2 files" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Group of 2 files");
+  const previews = page.locator("img.preview");
+  await expect(previews).toHaveCount(2);
+  await expect.poll(() => previews.first().evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.keyboard.press("o");
+  await expect(page.getByLabel("Overlay opacity")).toBeVisible();
+  await page.keyboard.press("b");
+  await expect(page.locator(".compare-blink")).toBeVisible();
+  await page.keyboard.press("s");
+  await expect(page.locator(".compare-side img.preview")).toHaveCount(2);
   const thumbs = page.locator("img.thumb");
   await expect(thumbs).toHaveCount(2);
   await expect.poll(() => thumbs.first().evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);

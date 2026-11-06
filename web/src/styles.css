@@ -4,7 +4,7 @@
   line-height: 1.4;
 }
 body { margin: 0; }
-main { max-width: 960px; margin: 0 auto; padding: 1rem; }
+main { max-width: 1400px; margin: 0 auto; padding: 1rem; }
 .topbar { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 1rem; border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
 .topbar .brand { font-weight: 700; text-decoration: none; color: inherit; }
 .topbar nav { margin-left: auto; display: flex; gap: 1rem; align-items: center; }
@@ -48,3 +48,5 @@ td.with-thumb { white-space: nowrap; }
 .compare-stacked .compare-images { position: relative; display: block; min-height: 12rem; }
 .compare-stacked .compare-images img.preview { position: absolute; top: 0; left: 0; max-width: 100%; }
 .preview-missing { padding: 2rem; opacity: 0.7; }
+.detail-columns { display: grid; grid-template-columns: minmax(18rem, 2fr) 3fr; gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .detail-columns { grid-template-columns: 1fr; } }
