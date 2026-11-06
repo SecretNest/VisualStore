@@ -24,6 +24,7 @@ STAT_KEYS = (
     "folders",
     "extensions_added",
     "files",
+    "files_skipped",
     "sha1_pairs",
     "related_keep",
     "similar_skipped",
@@ -118,6 +119,7 @@ def _import_files(conn, v1, ctx, folder_ids, ext_ids, ext_names, stats) -> dict[
         folder = folder_ids.get(bytes(f["FolderId"]))
         ext_id = ext_ids.get(bytes(f["ExtensionId"]))
         if folder is None or ext_id is None:
+            stats["files_skipped"] += 1
             continue
         sha1 = bytes(f["Sha1Hash"]) if f["Sha1Hash"] else None
         if f["FileState"] == STATE_NOT_READABLE:
@@ -166,6 +168,20 @@ def _link_identical(conn, v1, file_ids, stats) -> list[bytes]:
     return dirty
 
 
+def _rollback(conn, extensions_before: dict[bytes, int]) -> None:
+    """Undo a half-done import. Helpers commit as they go, so this is an explicit reversal:
+    deleting the Folders cascades files, pairs, groups and dirty marks; extensions are
+    restored to their previous rows and enabled flags."""
+    with conn:
+        conn.execute("DELETE FROM folder")
+        conn.execute("DELETE FROM regroup_queue")
+        for row in conn.execute("SELECT id FROM extension").fetchall():
+            if bytes(row["id"]) not in extensions_before:
+                conn.execute("DELETE FROM extension WHERE id = ?", (row["id"],))
+        for ext_id, enabled in extensions_before.items():
+            conn.execute("UPDATE extension SET enabled = ? WHERE id = ?", (enabled, ext_id))
+
+
 def run_import_v1(ctx: IoContext) -> dict:
     mapping: dict[str, str] = ctx.params.get("folder_paths") or {}
     with (
@@ -174,10 +190,15 @@ def run_import_v1(ctx: IoContext) -> dict:
     ):
         v1_folders = _check_preconditions(conn, v1, mapping)
         stats = dict.fromkeys(STAT_KEYS, 0)
-        folder_ids = _import_folders(conn, v1, v1_folders, mapping, stats)
-        ext_ids, ext_names = _import_extensions(conn, v1, stats)
-        file_ids = _import_files(conn, v1, ctx, folder_ids, ext_ids, ext_names, stats)
-        dirty = _link_identical(conn, v1, file_ids, stats)
+        extensions_before = {bytes(r["id"]): r["enabled"] for r in folders_db.list_extensions(conn)}
+        try:
+            folder_ids = _import_folders(conn, v1, v1_folders, mapping, stats)
+            ext_ids, ext_names = _import_extensions(conn, v1, stats)
+            file_ids = _import_files(conn, v1, ctx, folder_ids, ext_ids, ext_names, stats)
+            dirty = _link_identical(conn, v1, file_ids, stats)
+        except Exception:
+            _rollback(conn, extensions_before)  # the profile was empty: make it empty again
+            raise
         for s in v1.execute("SELECT File1Id, File2Id FROM SimilarFile"):
             stats["similar_skipped"] += 1
             if bytes(s["File1Id"]) not in file_ids or bytes(s["File2Id"]) not in file_ids:

@@ -38,6 +38,8 @@ class ScanPlan:
     unchanged: int = 0
     missing: list[DbFile] = field(default_factory=list)
     touch: list[tuple[bytes, DiskEntry]] = field(default_factory=list)  # mtime was unknown (0)
+    renamed: list[tuple[bytes, DiskEntry]] = field(default_factory=list)  # case-only spelling
+    collisions: list[DiskEntry] = field(default_factory=list)  # two disk names, one NOCASE key
 
 
 def _key(directory: str, name: str) -> tuple[str, str]:
@@ -50,11 +52,17 @@ def diff(disk: Iterable[DiskEntry], db: Iterable[DbFile]) -> ScanPlan:
     seen: set[tuple[str, str]] = set()
     for entry in disk:
         key = _key(entry.directory, entry.name)
+        if key in seen:  # a.jpg and A.jpg on a case-sensitive disk: the index allows one row
+            plan.collisions.append(entry)
+            continue
         seen.add(key)
         existing = by_key.get(key)
         if existing is None:
             plan.insert.append(entry)
-        elif existing.size == entry.size and existing.mtime in (entry.mtime, 0):
+            continue
+        if (existing.directory, existing.name) != (entry.directory, entry.name):
+            plan.renamed.append((existing.id, entry))
+        if existing.size == entry.size and existing.mtime in (entry.mtime, 0):
             plan.unchanged += 1
             if existing.mtime == 0:
                 plan.touch.append((existing.id, entry))

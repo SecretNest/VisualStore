@@ -87,3 +87,20 @@ def test_extensions(client):
     assert next(e for e in toggled if e["extension"] == "psd")["enabled"] is False
     bad = client.put("/api/p/a/extensions", json={"extension": "x", "media_type": "nope"})
     assert bad.status_code == 400
+
+
+def test_bad_directory_strings_are_400_not_500(client, media):
+    """Final review I6."""
+    setup(client)
+    folder = client.post("/api/p/a/folders", json=folder_body("New", media / "new")).json()
+    bad = client.post(f"/api/p/a/folders/{folder['id']}/ignored", json={"directory": "../etc"})
+    assert bad.status_code == 400
+    assert (
+        client.put("/api/p/a/settings/trash.retention_days", json={"value": 0}).status_code == 400
+    )
+    move = {
+        "source_folder_id": folder["id"],
+        "target_folder_id": folder["id"],
+        "directories": ["../x"],
+    }
+    assert client.post("/api/p/a/archive-move", json=move).status_code == 400

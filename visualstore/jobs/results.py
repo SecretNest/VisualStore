@@ -15,6 +15,15 @@ ResultSink = Callable[[sqlite3.Connection, str, dict, dict], None]
 RESULT_SINKS: dict[str, ResultSink] = {}
 
 
+def _stale(row, entry: dict) -> bool:
+    """A result describes the file as it was when hashed; the row describes it now."""
+    if entry.get("state") != "fingerprinted":
+        return False
+    if "size" in entry and entry["size"] != row["size"]:
+        return True
+    return "mtime" in entry and row["mtime"] != 0 and entry["mtime"] != row["mtime"]
+
+
 def sink_fingerprint(conn: sqlite3.Connection, profile: str, params: dict, result: dict) -> None:
     from visualstore.db import files as files_db
     from visualstore.db import groups as groups_db
@@ -29,8 +38,11 @@ def sink_fingerprint(conn: sqlite3.Connection, profile: str, params: dict, resul
             file_id = id_from_str(entry["id"])
         except ValueError:
             continue
-        if files_db.get_file(conn, file_id) is None:
+        row = files_db.get_file(conn, file_id)
+        if row is None:
             continue  # deleted or trashed since the job was queued
+        if _stale(row, entry):
+            continue  # content changed after the hash was computed; a new fingerprint is queued
         sha1 = bytes.fromhex(entry["sha1"]) if entry.get("sha1") else None
         files_db.set_fingerprint_result(conn, file_id, sha1=sha1, state=entry["state"])
         if sha1 is None or entry["state"] != "fingerprinted":

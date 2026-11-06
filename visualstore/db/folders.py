@@ -102,6 +102,16 @@ def update_folder(conn: sqlite3.Connection, folder_id: bytes, **fields) -> None:
 
 def delete_folder(conn: sqlite3.Connection, folder_id: bytes) -> None:
     with conn:
+        # group members outside this Folder must be regrouped once their co-members vanish
+        conn.execute(
+            "INSERT OR IGNORE INTO regroup_queue (file_id)"
+            " SELECT m2.file_id FROM file_group_member m1"
+            " JOIN file f1 ON f1.id = m1.file_id"
+            " JOIN file_group_member m2 ON m2.group_id = m1.group_id"
+            " JOIN file f2 ON f2.id = m2.file_id"
+            " WHERE f1.folder_id = ? AND f2.folder_id != ?",
+            (folder_id, folder_id),
+        )
         conn.execute("DELETE FROM folder WHERE id = ?", (folder_id,))
 
 

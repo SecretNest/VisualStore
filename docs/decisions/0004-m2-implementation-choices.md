@@ -21,6 +21,9 @@ Milestone 2 adds the domain tables and the byte-identical pipeline. A few detail
 - **Scan schedule** is a per-profile setting `scan.interval_hours` (default 24, 0 disables) handled by the existing planner mechanism.
 - **Unknown mtime**: imported files carry `mtime = 0`; the scan treats an equal-size file with unknown mtime as unchanged and records the real mtime, so an import followed by a scan does not discard every imported hash.
 - **Inbox-only identical groups are never auto-executed** (design §8.2 says a human must look); archive-only single-Folder groups are undecided; a component whose every edge is `related_keep` is `resolved` with nothing to do.
+- **Automatic execution and judgments** (final review): a byte-identical group that spans several archive Folders is executed by priority as §8.2 says (the plan's Review Focus 4 was worded too broadly and has been corrected); any group containing a human judgment is never executed automatically, and a `related_keep` edge propagates "keep" to both of its ends before preselection. Byte-identical edges are derived from sha1 equality during regroup (stored star pairs are a cache that regroup rebuilds), so deleting the hub of a star does not lose the identity of the remaining copies.
+- **Scan safety** (final review): a scan whose Folder root is unavailable fails instead of deleting every row, and a root that lists no media while rows exist is refused ("is the share mounted?"). Case-only renames update the stored spelling; two names that collide under NOCASE are counted and skipped.
+- **Stale results** (final review): a fingerprint result is ignored when the file's size or mtime no longer match the row; `apply_action` re-checks size/mtime and the group decision before trashing.
 - **SimilarFile import stays off**; the switch is milestone 3+ work ([11 §15](../design/11-roadmap.md#15-optional-follow-up-resolve-similar-pairs-with-v1-judgments)).
 
 ## Consequences

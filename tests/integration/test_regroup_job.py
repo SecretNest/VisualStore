@@ -171,3 +171,39 @@ def test_member_deletion_shrinks_or_dissolves_the_group(world):
     run_regroup(ctx_for(reg, **AUTO_OFF))
     assert groups.group_of_file(conn, a) is None
     assert groups.count_by_status(conn)["open"] == 0
+
+
+def test_related_keep_is_honoured_when_a_group_grows(world):
+    """Final review C2: a user's 'keep both' must survive a new identical copy."""
+    reg, conn, f = world
+    a, b = add(conn, f["arch"], "a.jpg"), add(conn, f["inbox"], "b.jpg")
+    connect(conn, a, b)
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    g = groups.group_of_file(conn, a)
+    groups.set_decisions(conn, g["id"], {a: "keep", b: "keep"})
+    pairs.set_judgment(conn, a, b, "related_keep", "user")
+    groups.set_status(conn, g["id"], "resolved")
+
+    c = add(conn, f["inbox"], "c.jpg")
+    connect(conn, a, c)
+    result = run_regroup(ctx_for(reg, **AUTO_ON))
+    assert result["auto_executed"] == 0
+    g2 = groups.group_of_file(conn, a)
+    assert g2["status"] == "open"
+    decisions = {m["file_id"]: m["decision"] for m in groups.members(conn, g2["id"])}
+    assert decisions == {a: "keep", b: "keep", c: "delete"}
+    assert jobs_db.list_jobs(conn, state="queued") == []
+
+
+def test_identical_spokes_stay_grouped_after_the_hub_is_deleted(world):
+    """Final review I2: sha1 equality, not the stored star, is the truth for identical edges."""
+    reg, conn, f = world
+    hub = add(conn, f["inbox"], "a.jpg")
+    b, c = add(conn, f["arch"], "b.jpg"), add(conn, f["arch2"], "c.jpg")
+    connect(conn, hub, b, c)
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    files.delete_files(conn, [hub])
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    g = groups.group_of_file(conn, b)
+    assert g is not None and {m["file_id"] for m in groups.members(conn, g["id"])} == {b, c}
+    assert g["has_identical"] == 1 and len(pairs.pairs_of_file(conn, b)) == 1

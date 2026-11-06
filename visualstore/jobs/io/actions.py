@@ -14,10 +14,12 @@ from visualstore.db import actions as actions_db
 from visualstore.db import files as files_db
 from visualstore.db import folders as folders_db
 from visualstore.db import groups as groups_db
+from visualstore.db import jobs as jobs_db
 from visualstore.domain.paths import TRASH_DIR
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs import results
 from visualstore.jobs.scheduler import IoContext
+from visualstore.jobs.types import PRIORITY_INBOX
 
 
 class ActionError(Exception):
@@ -86,7 +88,11 @@ def remove_empty_parents(path: Path, stop_at: Path) -> None:
 
 
 def _trash_one(
-    conn: sqlite3.Connection, ctx: IoContext, file_id: bytes, now: datetime
+    conn: sqlite3.Connection,
+    ctx: IoContext,
+    file_id: bytes,
+    now: datetime,
+    group_id: bytes | None,
 ) -> str | None:
     row = files_db.get_file(conn, file_id)
     if row is None:
@@ -96,6 +102,16 @@ def _trash_one(
     src = Path(folder["path"]) / rel
     if not src.is_file():
         return "missing file"
+    st = src.stat()
+    if st.st_size != row["size"] or (row["mtime"] and st.st_mtime_ns != row["mtime"]):
+        return "changed on disk"  # the decision was made about different content
+    if group_id is not None:
+        member = conn.execute(
+            "SELECT decision FROM file_group_member WHERE group_id = ? AND file_id = ?",
+            (group_id, file_id),
+        ).fetchone()
+        if member is None or member["decision"] != "delete":
+            return "decision changed"
     before = {
         "file_id": id_to_str(file_id),
         "folder_id": id_to_str(bytes(row["folder_id"])),
@@ -193,9 +209,11 @@ def _restore_one(conn: sqlite3.Connection, ctx: IoContext, action_id: bytes) -> 
 def run_apply_action(ctx: IoContext) -> dict:
     now = datetime.now(UTC)
     result: dict = {"trashed": 0, "restored": 0, "skipped": []}
+    group_text = ctx.params.get("group_id")
+    group_id = id_from_str(group_text) if group_text else None
     with closing(ctx.open_metadata()) as conn:
         for text in ctx.params.get("trash", []):
-            reason = _trash_one(conn, ctx, id_from_str(text), now)
+            reason = _trash_one(conn, ctx, id_from_str(text), now, group_id)
             if reason:
                 result["skipped"].append({"id": text, "reason": reason})
             else:
@@ -206,11 +224,12 @@ def run_apply_action(ctx: IoContext) -> dict:
                 result["skipped"].append({"id": text, "reason": reason})
             else:
                 result["restored"] += 1
-        group_text = ctx.params.get("group_id")
-        if group_text and not result["skipped"]:
-            g = groups_db.get_group(conn, id_from_str(group_text))
+        if group_id is not None and not result["skipped"]:
+            g = groups_db.get_group(conn, group_id)
             if g is not None and g["status"] == "open":
                 groups_db.set_status(conn, bytes(g["id"]), "resolved")
+        if result["trashed"] and not jobs_db.has_active(conn, "regroup"):
+            jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
     return result
 
 

@@ -115,7 +115,10 @@ async def add_ignored(
     conn = get_state(request).registry.conn(name)
     fid = parse_id(folder_id)
     _folder_or_404(conn, fid)
-    folders_db.add_ignored(conn, fid, body.directory, body.recursive)
+    try:
+        folders_db.add_ignored(conn, fid, body.directory, body.recursive)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     return _folder_out(conn, folders_db.get_folder(conn, fid))
 
 

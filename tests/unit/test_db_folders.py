@@ -125,3 +125,26 @@ def test_default_extensions_are_seeded_and_editable(conn):
     assert any(r["extension"] == "zip" and r["enabled"] == 0 for r in folders.list_extensions(conn))
     with pytest.raises(folders.FolderError):
         folders.upsert_extension(conn, "psd", "layered")
+
+
+def test_deleting_a_folder_marks_surviving_group_members_dirty(conn, media):
+    """Final review I4: the co-members outside the Folder must be regrouped."""
+    from visualstore.db import files, groups
+    from visualstore.db.groups import NewGroup
+
+    arch = folders.create_folder(
+        conn, name="A", path=str(media / "images"), role="archive", compare_scope="all"
+    )
+    inbox = folders.create_folder(
+        conn, name="I", path=str(media / "inbox"), role="inbox", compare_scope="all"
+    )
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    a = files.insert_file(
+        conn, folder_id=arch, directory="", name="a.jpg", extension_id=ext, size=1, mtime=1
+    )
+    b = files.insert_file(
+        conn, folder_id=inbox, directory="", name="b.jpg", extension_id=ext, size=1, mtime=1
+    )
+    groups.replace_groups(conn, [], [NewGroup(frozenset({a, b}), 0.0, True, "open", {})])
+    folders.delete_folder(conn, inbox)
+    assert groups.pop_dirty(conn) == [a]

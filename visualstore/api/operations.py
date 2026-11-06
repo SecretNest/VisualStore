@@ -7,6 +7,7 @@ from visualstore.api.deps import get_profile, get_state, require_auth
 from visualstore.api.ids import parse_id
 from visualstore.db import folders as folders_db
 from visualstore.db import jobs as jobs_db
+from visualstore.domain.paths import normalise_relative
 from visualstore.jobs.types import PRIORITY_USER
 
 router = APIRouter(
@@ -33,6 +34,11 @@ async def archive_move(
     for text in (body.source_folder_id, body.target_folder_id):
         if folders_db.get_folder(conn, parse_id(text)) is None:
             raise HTTPException(status_code=404, detail="No such Folder.")
+    try:
+        for directory in body.directories:
+            normalise_relative(directory)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     job_id = jobs_db.enqueue(
         conn, type="archive_move", kind="io", priority=PRIORITY_USER, params=body.model_dump()
     )

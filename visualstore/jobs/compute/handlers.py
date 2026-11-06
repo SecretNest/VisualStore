@@ -47,10 +47,16 @@ def fingerprint(params: dict, report: Report) -> dict:
     for i, entry in enumerate(entries, start=1):
         path = entry["path"]
         try:
-            size = os.stat(path).st_size
+            st = os.stat(path)
             digest = sha1_of(path)
             out.append(
-                {"id": entry["id"], "sha1": digest.hex(), "state": "fingerprinted", "size": size}
+                {
+                    "id": entry["id"],
+                    "sha1": digest.hex(),
+                    "state": "fingerprinted",
+                    "size": st.st_size,
+                    "mtime": st.st_mtime_ns,
+                }
             )
         except FileNotFoundError:
             out.append({"id": entry["id"], "sha1": None, "state": "missing", "size": 0})

@@ -115,3 +115,23 @@ def test_scan_after_import_keeps_hashes_when_only_mtime_was_unknown(world):
     b = files.get_file(conn, ids["f_b"].bytes)
     assert b["sha1"] == b"\x11" * 20 and b["state"] == "fingerprinted" and b["mtime"] > 0
     assert result["changed"] == 0 and result["deleted"] == 2  # c.png and clips/d.mp4 not on disk
+
+
+def test_failed_import_leaves_the_profile_empty_and_retryable(world, monkeypatch):
+    """Final review I7."""
+    from visualstore.jobs.io import import_v1 as mod
+
+    reg, conn, tmp_path, ids = world
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(mod, "_link_identical", boom)
+    with pytest.raises(RuntimeError):
+        run_import_v1(ctx_for(reg, params_for(tmp_path)))
+    assert folders.list_folders(conn) == []
+    assert conn.execute("SELECT COUNT(*) FROM file").fetchone()[0] == 0
+    assert not any(r["extension"] == "zip" for r in folders.list_extensions(conn))
+    monkeypatch.undo()
+    result = run_import_v1(ctx_for(reg, params_for(tmp_path)))
+    assert result["files"] == 4 and result["files_skipped"] == 0

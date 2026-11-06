@@ -94,3 +94,15 @@ def test_unknown_mtime_with_same_size_is_a_touch_not_a_change():
     assert [(fid, e.mtime) for fid, e in plan.touch] == [(b"1" * 16, 99)]
     plan2 = diff(disk=[entry("x.jpg", size=6, mtime=99)], db=unknown)
     assert len(plan2.changed) == 1 and plan2.touch == []
+
+
+def test_exact_spelling_change_is_reported_as_renamed():
+    plan = diff(disk=[entry("A/Pic.JPG")], db=[dbfile(b"1" * 16, "a/pic.jpg")])
+    assert plan.unchanged == 1
+    assert [(fid, e.directory, e.name) for fid, e in plan.renamed] == [(b"1" * 16, "A", "Pic.JPG")]
+
+
+def test_disk_entries_colliding_under_nocase_are_reported_once():
+    plan = diff(disk=[entry("x.jpg", size=1), entry("X.jpg", size=2)], db=[])
+    assert [e.name for e in plan.insert] == ["x.jpg"]
+    assert [e.name for e in plan.collisions] == ["X.jpg"]

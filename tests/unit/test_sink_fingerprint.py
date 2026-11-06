@@ -81,3 +81,33 @@ def test_missing_row_is_skipped(db):
 
 def test_registered():
     assert RESULT_SINKS["fingerprint"] is sink_fingerprint
+
+
+def test_stale_result_for_a_changed_file_is_ignored(db):
+    """Final review C3: a result computed before the content changed must not be stored."""
+    conn, (a, *_) = db
+    files.update_stat(conn, a, size=99, mtime=5)
+    files.reset_for_recompute(conn, a)
+    sink_fingerprint(
+        conn,
+        "p",
+        {},
+        {
+            "files": [
+                {"id": id_to_str(a), "sha1": SHA, "state": "fingerprinted", "size": 1, "mtime": 1}
+            ]
+        },
+    )
+    row = files.get_file(conn, a)
+    assert row["state"] == "new" and row["sha1"] is None
+    sink_fingerprint(
+        conn,
+        "p",
+        {},
+        {
+            "files": [
+                {"id": id_to_str(a), "sha1": SHA, "state": "fingerprinted", "size": 99, "mtime": 5}
+            ]
+        },
+    )
+    assert files.get_file(conn, a)["state"] == "fingerprinted"

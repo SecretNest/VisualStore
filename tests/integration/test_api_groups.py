@@ -29,14 +29,15 @@ def seeded(client, tmp_path):
 
     def add(folder, root, name, content):
         (root / name).write_bytes(content)
+        st = (root / name).stat()
         fid = files.insert_file(
             conn,
             folder_id=folder,
             directory="",
             name=name,
             extension_id=ext,
-            size=len(content),
-            mtime=1,
+            size=st.st_size,
+            mtime=st.st_mtime_ns,
         )
         files.set_fingerprint_result(
             conn, fid, sha1=hashlib.sha1(content).digest(), state="fingerprinted"

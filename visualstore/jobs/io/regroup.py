@@ -19,8 +19,20 @@ from visualstore.jobs.types import PRIORITY_INBOX
 BATCH = 2000
 
 
+def _same_sha1(conn: sqlite3.Connection, ids: set[bytes]) -> set[bytes]:
+    if not ids:
+        return set()
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        "SELECT id FROM file WHERE state = 'fingerprinted' AND sha1 IN"
+        f" (SELECT sha1 FROM file WHERE id IN ({marks}) AND sha1 IS NOT NULL)",
+        list(ids),
+    ).fetchall()
+    return {bytes(r["id"]) for r in rows}
+
+
 def _closure(conn: sqlite3.Connection, seeds: list[bytes]) -> set[bytes]:
-    """Seeds plus everything reachable through pairs or shared group membership."""
+    """Seeds plus everything reachable through pairs, shared group membership or equal sha1."""
     scope: set[bytes] = set(seeds)
     frontier: set[bytes] = set(seeds)
     while frontier:
@@ -30,9 +42,29 @@ def _closure(conn: sqlite3.Connection, seeds: list[bytes]) -> set[bytes]:
             bytes(g["id"]) for f in frontier if (g := groups_db.group_of_file(conn, f)) is not None
         }
         reached |= set(groups_db.member_file_ids(conn, group_ids))
+        reached |= _same_sha1(conn, frontier)
         frontier = reached - scope
         scope |= frontier
     return scope
+
+
+def _rehub_identical(conn: sqlite3.Connection, scope: set[bytes]) -> None:
+    """Byte-identical edges follow from sha1 equality; the stored star pairs are a cache that
+    must be rebuilt when a hub was deleted (final review I2)."""
+    if not scope:
+        return
+    marks = ",".join("?" * len(scope))
+    rows = conn.execute(
+        f"SELECT id, sha1 FROM file WHERE id IN ({marks}) AND sha1 IS NOT NULL"
+        " AND state = 'fingerprinted' ORDER BY created_at, rowid",
+        list(scope),
+    ).fetchall()
+    buckets: dict[bytes, list[bytes]] = {}
+    for r in rows:
+        buckets.setdefault(bytes(r["sha1"]), []).append(bytes(r["id"]))
+    for members in buckets.values():
+        for other in members[1:]:
+            pairs_db.upsert_sha1_pair(conn, members[0], other)
 
 
 def _members(conn: sqlite3.Connection, ids: set[bytes]) -> dict[bytes, Member]:
@@ -78,6 +110,7 @@ def run_regroup(ctx: IoContext) -> dict:
             if not seeds:
                 break
             scope = _closure(conn, seeds)
+            _rehub_identical(conn, scope)
             edges = [
                 PairEdge(
                     bytes(r["file_a"]),
@@ -115,6 +148,20 @@ def run_regroup(ctx: IoContext) -> dict:
                         auto_execute_identical=auto_setting,
                     )
                     status, decisions, auto = pre.status, pre.decisions, pre.auto_executable
+                    kept_edges = [e for e in inner if e.judgment == "related_keep"]
+                    if kept_edges:
+                        # A human said "keep both" for these pairs: propagate keep along them
+                        # and never execute such a group automatically (final review C2).
+                        decisions = dict(decisions)
+                        changed = True
+                        while changed:
+                            changed = False
+                            for e in kept_edges:
+                                for x, y in ((e.a, e.b), (e.b, e.a)):
+                                    if decisions.get(x) == "keep" and decisions.get(y) != "keep":
+                                        decisions[y] = "keep"
+                                        changed = True
+                        status, auto = "open", False
                 if auto:
                     to_execute.append(len(new_groups))
                 new_groups.append(

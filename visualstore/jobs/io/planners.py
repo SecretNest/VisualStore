@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from visualstore.clock import parse_iso
 from visualstore.db import folders as folders_db
+from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.ids import id_to_str
@@ -59,5 +60,17 @@ def plan_purge(registry: ProfileRegistry, now: datetime | None = None) -> int:
         if not _due(jobs_db.latest_of_type(conn, "purge_trash"), timedelta(hours=24), now):
             continue
         jobs_db.enqueue(conn, type="purge_trash", kind="io", priority=PRIORITY_MAINTENANCE)
+        enqueued += 1
+    return enqueued
+
+
+def plan_regroup(registry: ProfileRegistry, now: datetime | None = None) -> int:
+    """Whatever marked files dirty, the queue gets drained (final review I4)."""
+    enqueued = 0
+    for name in registry.names():
+        conn = registry.conn(name)
+        if groups_db.dirty_count(conn) == 0 or jobs_db.has_active(conn, "regroup"):
+            continue
+        jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
         enqueued += 1
     return enqueued

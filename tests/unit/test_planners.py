@@ -70,3 +70,30 @@ def test_plan_purge_daily_when_trash_enabled(registry):
     for j in jobs_db.list_jobs(conn, state="queued"):
         jobs_db.cancel(conn, j["id"])
     assert plan_purge(registry, now=datetime.now(UTC) + timedelta(hours=100)) == 0
+
+
+def test_plan_regroup_drains_the_dirty_queue(registry):
+    from visualstore.db import groups
+    from visualstore.jobs.io.planners import plan_regroup
+
+    conn = registry.conn("a")
+    assert plan_regroup(registry) == 0
+    groups.mark_dirty(conn, [b"\x01" * 16]) if False else conn.execute(
+        "INSERT INTO regroup_queue (file_id) SELECT id FROM file LIMIT 1"
+    )
+    # queue is still empty because there are no files; create one and mark it dirty
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    from visualstore.db import files
+
+    fid = files.insert_file(
+        conn,
+        folder_id=bytes(folders.list_folders(conn)[0]["id"]),
+        directory="",
+        name="x.jpg",
+        extension_id=ext,
+        size=1,
+        mtime=1,
+    )
+    groups.mark_dirty(conn, [fid])
+    assert plan_regroup(registry) == 1
+    assert plan_regroup(registry) == 0  # already queued

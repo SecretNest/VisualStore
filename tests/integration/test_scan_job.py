@@ -152,3 +152,50 @@ def test_disabled_folder_is_skipped(world):
     reg, conn, folder, lib = world
     folders.update_folder(conn, folder, enabled=False)
     assert run_scan(ctx_for(reg, folder)) == {"skipped": "folder disabled"}
+
+
+def test_unavailable_or_empty_root_refuses_to_wipe_the_folder(world):
+    """Final review C1: an offline share must not delete every row (hashes, judgments)."""
+    import shutil
+
+    from visualstore.jobs.io.scan import ScanError
+
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    assert len(files.list_files_in_folder(conn, folder)) == 2
+    shutil.rmtree(lib)
+    with pytest.raises(ScanError, match="not available"):
+        run_scan(ctx_for(reg, folder))
+    assert len(files.list_files_in_folder(conn, folder)) == 2
+    lib.mkdir()  # the mount point exists but the share is not mounted: empty root
+    with pytest.raises(ScanError, match="refusing"):
+        run_scan(ctx_for(reg, folder))
+    assert len(files.list_files_in_folder(conn, folder)) == 2
+
+
+def test_case_only_rename_updates_the_stored_spelling(world):
+    """Final review I1: on a case-sensitive filesystem the stored name must match the disk."""
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    (lib / "two.PNG").rename(lib / "TWO.png")
+    result = run_scan(ctx_for(reg, folder))
+    assert result["unchanged"] == 2 and result["renamed"] == 1
+    assert files.find_file(conn, folder, "", "TWO.png")["name"] == "TWO.png"
+
+
+def test_case_colliding_names_are_skipped_not_fatal(world):
+    reg, conn, folder, lib = world
+    (lib / "Dup.jpg").write_bytes(b"1")
+    (lib / "dup.jpg").write_bytes(b"2")
+    result = run_scan(ctx_for(reg, folder))
+    assert result["collisions"] == 1
+    assert len([p for p in rel_paths(conn, folder) if p.lower() == "dup.jpg"]) == 1
+
+
+def test_deletions_queue_a_regroup(world):
+    """Final review I4."""
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    (lib / "two.PNG").unlink()
+    run_scan(ctx_for(reg, folder))
+    assert jobs_db.has_active(conn, "regroup")

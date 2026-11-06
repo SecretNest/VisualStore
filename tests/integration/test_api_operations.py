@@ -25,8 +25,15 @@ def seeded(client, tmp_path):
     )
     ext = folders.extension_map(conn)["jpg"]["id"]
     (inbox / "set" / "x.jpg").write_bytes(b"x")
+    st = (inbox / "set" / "x.jpg").stat()
     x = files.insert_file(
-        conn, folder_id=fi, directory="set", name="x.jpg", extension_id=ext, size=1, mtime=1
+        conn,
+        folder_id=fi,
+        directory="set",
+        name="x.jpg",
+        extension_id=ext,
+        size=st.st_size,
+        mtime=st.st_mtime_ns,
     )
     files.set_fingerprint_result(conn, x, sha1=hashlib.sha1(b"x").digest(), state="fingerprinted")
     return {"conn": conn, "inbox": fi, "arch": fa, "inbox_dir": inbox, "arch_dir": arch, "x": x}

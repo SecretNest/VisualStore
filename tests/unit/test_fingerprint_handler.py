@@ -29,12 +29,9 @@ def test_fingerprint_reports_each_file_and_progress(tmp_path):
         reports.append,
     )
     by_id = {f["id"]: f for f in result["files"]}
-    assert by_id["A"] == {
-        "id": "A",
-        "sha1": hashlib.sha1(b"aaa").hexdigest(),
-        "state": "fingerprinted",
-        "size": 3,
-    }
+    assert by_id["A"]["sha1"] == hashlib.sha1(b"aaa").hexdigest()
+    assert by_id["A"]["state"] == "fingerprinted" and by_id["A"]["size"] == 3
+    assert by_id["A"]["mtime"] == (tmp_path / "a.jpg").stat().st_mtime_ns
     assert by_id["B"]["sha1"] == hashlib.sha1(b"bbb").hexdigest()
     assert by_id["C"] == {"id": "C", "sha1": None, "state": "missing", "size": 0}
     assert reports[-1]["done"] == 3 and reports[-1]["total"] == 3

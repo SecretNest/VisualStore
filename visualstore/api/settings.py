@@ -31,6 +31,6 @@ async def put_setting(
         settings_db.set(conn, key, body.value)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown setting '{key}'.") from None
-    except TypeError as exc:
+    except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     return settings_db.all(conn)

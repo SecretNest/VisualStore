@@ -115,8 +115,7 @@ def test_restore_brings_the_file_back_with_its_id_and_pairs(world):
     assert actions.list_trash(conn) == [] and actions.get(conn, act["id"])["superseded_at"]
     assert any(r["type"] == "restore" for r in conn.execute("SELECT type FROM action"))
 
-    (lib / "sub" / "b.jpg").write_bytes(b"new occupant")
-    run_apply_action(ctx_for(reg, {"trash": [id_to_str(b)]}))  # trash again (moves the occupant)
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(b)]}))  # trash again
     [act2] = actions.list_trash(conn)
     (lib / "sub" / "b.jpg").write_bytes(b"another")  # target taken: restore must refuse
     result = run_apply_action(ctx_for(reg, {"restore": [id_to_str(act2["id"])]}))
@@ -207,3 +206,26 @@ def test_remove_empty_parents_stops_at_root_and_trash(tmp_path):
 def test_trash_path_layout():
     p = trash_path("/media/lib", "a/b", "c.jpg", datetime(2026, 11, 6, tzinfo=UTC))
     assert p == Path("/media/lib/.visualstore-trash/2026-11/a/b/c.jpg")
+
+
+def test_trash_skips_files_changed_on_disk_or_no_longer_marked_delete(world):
+    """Final review I3."""
+    reg, conn, folder, lib, add = world
+    a = add("a.jpg", b"aaa")
+    b = add("b.jpg", b"aaa")
+    [gid] = groups.replace_groups(
+        conn, [], [NewGroup(frozenset({a, b}), 0.0, True, "open", {a: "keep", b: "delete"})]
+    )
+    (lib / "b.jpg").write_bytes(b"replaced content")  # changed after the decision
+    result = run_apply_action(ctx_for(reg, {"group_id": id_to_str(gid), "trash": [id_to_str(b)]}))
+    assert result["trashed"] == 0 and result["skipped"][0]["reason"] == "changed on disk"
+    assert (lib / "b.jpg").exists() and groups.get_group(conn, gid)["status"] == "open"
+
+    c = add("c.jpg", b"ccc")
+    d = add("d.jpg", b"ccc")
+    [gid2] = groups.replace_groups(
+        conn, [], [NewGroup(frozenset({c, d}), 0.0, True, "open", {c: "keep", d: "keep"})]
+    )
+    result = run_apply_action(ctx_for(reg, {"group_id": id_to_str(gid2), "trash": [id_to_str(d)]}))
+    assert result["trashed"] == 0 and result["skipped"][0]["reason"] == "decision changed"
+    assert (lib / "d.jpg").exists()

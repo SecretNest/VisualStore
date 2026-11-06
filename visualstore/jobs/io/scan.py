@@ -29,6 +29,10 @@ from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
 FINGERPRINT_BATCH = 64
 
 
+class ScanError(Exception):
+    """The Folder cannot be scanned safely; the job fails and the database is left alone."""
+
+
 def _abs(folder_path: str, directory: str, name: str) -> str:
     if directory:
         return os.path.join(folder_path, directory, name)
@@ -81,8 +85,14 @@ def run_scan(ctx: IoContext) -> dict:
         ignored = [
             (r["directory"], bool(r["recursive"])) for r in folders_db.list_ignored(conn, folder_id)
         ]
+        _check_root(folder["path"])
         disk = walk(folder["path"], extensions, ignored, ctx.report)
         db_rows = files_db.list_files_in_folder(conn, folder_id)
+        if db_rows and not disk:
+            raise ScanError(
+                f"{folder['path']} lists no media files while {len(db_rows)} are recorded;"
+                " refusing to delete them. Is the share mounted?"
+            )
         plan = diff(
             disk,
             [
@@ -114,6 +124,8 @@ def run_scan(ctx: IoContext) -> dict:
             files_db.reset_for_recompute(conn, fid)
         for fid, e in plan.touch:  # imported rows learn their real mtime, hash untouched
             files_db.update_stat(conn, fid, e.size, e.mtime)
+        for fid, e in plan.renamed:  # same file under NOCASE, different spelling on disk
+            files_db.update_path(conn, fid, e.directory, e.name)
 
         moved_ids: set[bytes] = set()
         candidates = move_candidates(plan)
@@ -138,6 +150,8 @@ def run_scan(ctx: IoContext) -> dict:
 
         to_delete = [f.id for f in plan.missing if f.id not in moved_ids]
         files_db.delete_files(conn, to_delete)
+        if to_delete and not jobs_db.has_active(conn, "regroup"):
+            jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
 
         default_priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
         priority = int(ctx.params.get("priority") or default_priority)
@@ -148,8 +162,20 @@ def run_scan(ctx: IoContext) -> dict:
             "unchanged": plan.unchanged,
             "moved": len(moved_ids),
             "deleted": len(to_delete),
+            "renamed": len(plan.renamed),
+            "collisions": len(plan.collisions),
             "fingerprint_jobs": jobs,
         }
+
+
+def _check_root(folder_path: str) -> None:
+    if not os.path.isdir(folder_path):
+        raise ScanError(f"Folder path is not available: {folder_path}")
+    try:
+        with os.scandir(folder_path):
+            pass
+    except OSError as exc:
+        raise ScanError(f"Folder path is not available: {folder_path} ({exc})") from exc
 
 
 def _enqueue_fingerprints(conn, folder, priority: int) -> int:
