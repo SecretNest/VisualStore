@@ -112,6 +112,8 @@ def run_scan(ctx: IoContext) -> dict:
         for fid, e in plan.changed:
             files_db.update_stat(conn, fid, e.size, e.mtime)
             files_db.reset_for_recompute(conn, fid)
+        for fid, e in plan.touch:  # imported rows learn their real mtime, hash untouched
+            files_db.update_stat(conn, fid, e.size, e.mtime)
 
         moved_ids: set[bytes] = set()
         candidates = move_candidates(plan)

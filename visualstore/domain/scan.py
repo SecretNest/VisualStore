@@ -37,6 +37,7 @@ class ScanPlan:
     changed: list[tuple[bytes, DiskEntry]] = field(default_factory=list)
     unchanged: int = 0
     missing: list[DbFile] = field(default_factory=list)
+    touch: list[tuple[bytes, DiskEntry]] = field(default_factory=list)  # mtime was unknown (0)
 
 
 def _key(directory: str, name: str) -> tuple[str, str]:
@@ -53,8 +54,10 @@ def diff(disk: Iterable[DiskEntry], db: Iterable[DbFile]) -> ScanPlan:
         existing = by_key.get(key)
         if existing is None:
             plan.insert.append(entry)
-        elif existing.size == entry.size and existing.mtime == entry.mtime:
+        elif existing.size == entry.size and existing.mtime in (entry.mtime, 0):
             plan.unchanged += 1
+            if existing.mtime == 0:
+                plan.touch.append((existing.id, entry))
         else:
             plan.changed.append((existing.id, entry))
     plan.missing = [f for k, f in by_key.items() if k not in seen]

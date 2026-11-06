@@ -85,3 +85,12 @@ def test_skip_rules():
     assert should_skip_directory("raw", ignored)
     assert not should_skip_directory("raw/sub", ignored)
     assert not should_skip_directory("", ignored)
+
+
+def test_unknown_mtime_with_same_size_is_a_touch_not_a_change():
+    unknown = [dbfile(b"1" * 16, "x.jpg", size=5, mtime=0)]
+    plan = diff(disk=[entry("x.jpg", size=5, mtime=99)], db=unknown)
+    assert plan.changed == [] and plan.unchanged == 1
+    assert [(fid, e.mtime) for fid, e in plan.touch] == [(b"1" * 16, 99)]
+    plan2 = diff(disk=[entry("x.jpg", size=6, mtime=99)], db=unknown)
+    assert len(plan2.changed) == 1 and plan2.touch == []
