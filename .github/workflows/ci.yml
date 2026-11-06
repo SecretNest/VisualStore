@@ -13,6 +13,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - name: System libraries for media tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips42 ffmpeg
       - name: Install
         run: uv sync --frozen
       - name: Lint
@@ -48,5 +50,6 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          target: runtime
           push: false
           tags: visualstore:ci
