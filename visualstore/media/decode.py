@@ -72,3 +72,23 @@ def thumbnail_webp(decoded: Decoded, longest: int = 256) -> bytes:
     scale = longest / max(decoded.width, decoded.height)
     img = decoded.image if scale >= 1 else decoded.image.resize(scale)
     return img.write_to_buffer(".webp[Q=80]")
+
+
+def preview_webp(path: str, longest: int, max_pixels: int) -> bytes:
+    """A down-scaled webp of an image file for the comparison pane (design §8.3). Streams the
+    decode through the same Source-based, fail_on="truncated" loader as load_image (the
+    shrink-on-load thumbnail path tolerates truncated files, so it is not used); never upscales."""
+    try:
+        source = pyvips.Source.new_from_file(path)
+        img = pyvips.Image.new_from_source(source, "", access="sequential", fail_on="truncated")
+        if img.width * img.height > max_pixels:
+            raise Unreadable(f"{img.width}x{img.height} exceeds the limit of {max_pixels} pixels")
+        img = img.thumbnail_image(longest, height=longest, size="down")
+        if img.hasalpha():
+            img = img.flatten(background=[255, 255, 255])
+        return img.write_to_buffer(".webp[Q=85]")
+    except pyvips.Error as exc:
+        message = str(exc)
+        if any(marker in message for marker in _NOT_MEDIA_MARKERS):
+            raise NotMedia(message) from exc
+        raise Unreadable(message) from exc

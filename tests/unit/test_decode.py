@@ -6,7 +6,12 @@ from tests.fixtures.vips import require_pyvips
 
 pyvips = require_pyvips()
 
-from visualstore.media.decode import load_image, thumbnail_webp, to_model_input  # noqa: E402
+from visualstore.media.decode import (  # noqa: E402
+    load_image,
+    preview_webp,
+    thumbnail_webp,
+    to_model_input,
+)
 from visualstore.media.errors import NotMedia, Unreadable  # noqa: E402
 
 MEAN, STD = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
@@ -72,3 +77,29 @@ def test_option_suffix_in_a_real_file_name_is_not_parsed(tmp_path):
     path = write(tmp_path, "tricky.png[page=9]", png_bytes(12, 12))
     d = load_image(path, max_pixels=10_000_000)
     assert (d.width, d.height) == (12, 12)
+
+
+def test_preview_webp_downscales_to_the_longest_side_and_never_upscales(tmp_path):
+    big = tmp_path / "big.png"
+    big.write_bytes(png_bytes(1600, 1200, gradient=True))
+    out = pyvips.Image.new_from_buffer(preview_webp(str(big), 1024, 100_000_000), "")
+    assert (out.width, out.height) == (1024, 768)
+    small = tmp_path / "small.png"
+    small.write_bytes(png_bytes(40, 30))
+    out = pyvips.Image.new_from_buffer(preview_webp(str(small), 1024, 100_000_000), "")
+    assert (out.width, out.height) == (40, 30)
+
+
+def test_preview_webp_raises_like_load_image(tmp_path):
+    bad = tmp_path / "zip.jpg"
+    bad.write_bytes(garbage())
+    with pytest.raises(NotMedia):
+        preview_webp(str(bad), 1024, 100_000_000)
+    cut = tmp_path / "cut.png"
+    cut.write_bytes(truncated(png_bytes(400, 300, gradient=True)))
+    with pytest.raises(Unreadable):
+        preview_webp(str(cut), 1024, 100_000_000)
+    huge = tmp_path / "huge.png"
+    huge.write_bytes(png_bytes(400, 300))
+    with pytest.raises(Unreadable, match="exceeds"):
+        preview_webp(str(huge), 1024, 1000)

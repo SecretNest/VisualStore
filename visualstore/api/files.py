@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 from pathlib import Path
 
@@ -14,11 +15,22 @@ from visualstore.db import files as files_db
 from visualstore.db import folders as folders_db
 from visualstore.db import groups as groups_db
 from visualstore.db import pairs as pairs_db
+from visualstore.db import settings as settings_db
 from visualstore.ids import id_to_str
+from visualstore.media.errors import NotMedia, Unreadable
+
+PREVIEW_PX = 1024
 
 router = APIRouter(
     prefix="/api/p/{name}/files", tags=["files"], dependencies=[Depends(require_auth)]
 )
+
+
+def _media_type(conn, extension_id: bytes) -> str:
+    for r in folders_db.list_extensions(conn):
+        if bytes(r["id"]) == extension_id:
+            return r["media_type"]
+    return "other"
 
 
 def _file_and_folder(conn, file_id: bytes):
@@ -53,6 +65,36 @@ async def file_content(
     return FileResponse(
         path, media_type=media_type, filename=row["name"], content_disposition_type="inline"
     )
+
+
+@router.get("/{file_id}/preview")
+async def file_preview(
+    file_id: str, request: Request, name: str = Depends(get_profile)
+) -> FileResponse:
+    state = get_state(request)
+    conn = state.registry.conn(name)
+    fid = parse_id(file_id)
+    row, folder = _file_and_folder(conn, fid)
+    cache = state.registry.paths(name).previews / file_id[:2] / f"{file_id}.webp"
+    if cache.is_file():
+        return FileResponse(cache, media_type="image/webp")
+    path = Path(folder["path"]) / files_db.relative_path(row["directory"], row["name"])
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The file is not on disk.")
+    if _media_type(conn, bytes(row["extension_id"])) != "image":
+        raise HTTPException(status_code=404, detail="No preview for this media type yet.")
+    from visualstore.media.decode import preview_webp  # pyvips: not imported server-wide
+
+    max_pixels = int(settings_db.get(conn, "media.max_pixels"))
+    try:
+        data = await asyncio.to_thread(preview_webp, str(path), PREVIEW_PX, max_pixels)
+    except (NotMedia, Unreadable) as exc:
+        raise HTTPException(status_code=404, detail=f"Cannot decode the file: {exc}") from None
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cache.with_suffix(".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(cache)
+    return FileResponse(cache, media_type="image/webp")
 
 
 @router.get("/{file_id}/thumbnail")

@@ -151,6 +151,7 @@ def sink_fingerprint(ctx: SinkContext) -> None:
             path = ctx.paths.thumbs / text[:2] / f"{text}.webp"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(base64.b64decode(entry["thumbnail"]))
+            (ctx.paths.previews / text[:2] / f"{text}.webp").unlink(missing_ok=True)
         if sha1 is None or entry["state"] != "fingerprinted":
             continue
         if link_identical(conn, file_id, sha1):

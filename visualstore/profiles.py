@@ -56,6 +56,10 @@ class ProfilePaths:
     def thumbs(self) -> Path:
         return self.root / "thumbs"
 
+    @property
+    def previews(self) -> Path:
+        return self.root / "previews"
+
 
 def validate_name(name: str) -> None:
     if not PROFILE_NAME_RE.fullmatch(name or ""):
@@ -105,6 +109,7 @@ class ProfileRegistry:
     def _open_profile(self, name: str) -> None:
         paths = self.paths(name)
         paths.thumbs.mkdir(parents=True, exist_ok=True)
+        paths.previews.mkdir(parents=True, exist_ok=True)
         metadata = connect(paths.metadata_db)
         migrate(metadata, migrations_dir("profile"))
         vectors = connect(paths.vectors_db)
