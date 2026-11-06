@@ -20,6 +20,7 @@ from visualstore.api import files as files_api
 from visualstore.api import folders as folders_api
 from visualstore.api import groups as groups_api
 from visualstore.api import jobs as jobs_api
+from visualstore.api import models as models_api
 from visualstore.api import operations as operations_api
 from visualstore.api import overview as overview_api
 from visualstore.api import profiles as profiles_api
@@ -120,6 +121,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(folders_api.router)
     app.include_router(groups_api.router)
     app.include_router(files_api.router)
+    app.include_router(models_api.router)
     app.include_router(trash_api.router)
     app.include_router(operations_api.router)
     _mount_static(app, static_dir or DEFAULT_STATIC_DIR)

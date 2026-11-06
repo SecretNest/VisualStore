@@ -53,3 +53,14 @@ async def file_content(
     return FileResponse(
         path, media_type=media_type, filename=row["name"], content_disposition_type="inline"
     )
+
+
+@router.get("/{file_id}/thumbnail")
+async def file_thumbnail(
+    file_id: str, request: Request, name: str = Depends(get_profile)
+) -> FileResponse:
+    parse_id(file_id)
+    path = get_state(request).registry.paths(name).thumbs / file_id[:2] / f"{file_id}.webp"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No thumbnail yet.")
+    return FileResponse(path, media_type="image/webp")
