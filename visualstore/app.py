@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -38,7 +40,14 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         registry = ProfileRegistry(config.data_dir)
         registry.open()
-        signer = SessionSigner(registry.secret("session_key"))
+        # The signing key mixes the stored random secret with the configured password, so
+        # changing VISUALSTORE_PASSWORD (env edit + restart) invalidates every session
+        # without a session table (design §9.2).
+        signer = SessionSigner(
+            hmac.new(
+                registry.secret("session_key"), config.password.encode("utf-8"), hashlib.sha256
+            ).digest()
+        )
         pool = ComputePool(config.compute_processes)
         pool.start()
         scheduler = Scheduler(

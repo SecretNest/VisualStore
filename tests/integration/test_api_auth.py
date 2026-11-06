@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from fastapi.testclient import TestClient
 
 from tests.integration.conftest import login
@@ -75,3 +77,17 @@ def test_jobs_left_running_are_requeued_on_start(config):
         row = jobs_db.get(state.registry.conn("a"), job_id)
         assert row["attempts"] == 1
         assert row["state"] in ("queued", "running", "done")  # requeued, then picked up again
+
+
+def test_changing_the_password_invalidates_existing_sessions(config):
+    """Sessions are signed with a key derived from the password, so a password change
+    (env edit + restart) logs every browser out without a session table."""
+    with TestClient(create_app(config)) as c:
+        login(c)
+        cookie = c.cookies["visualstore_session"]
+        assert c.get("/api/system/status").status_code == 200
+
+    rotated = replace(config, password="a-new-password")
+    with TestClient(create_app(rotated)) as c2:
+        response = c2.get("/api/system/status", headers={"Cookie": f"visualstore_session={cookie}"})
+        assert response.status_code == 401

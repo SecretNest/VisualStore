@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from visualstore.api.deps import COOKIE, get_state
 from visualstore.auth import password_matches
 
+# Handlers are async so they run on the event-loop thread: the rate limiter's check and
+# record then cannot interleave across concurrent requests (sync handlers run in a pool).
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -18,7 +20,7 @@ def _client_key(request: Request) -> str:
 
 
 @router.post("/login")
-def login(body: LoginRequest, request: Request, response: Response) -> dict:
+async def login(body: LoginRequest, request: Request, response: Response) -> dict:
     state = get_state(request)
     key = _client_key(request)
     if not state.limiter.allowed(key):
@@ -41,13 +43,13 @@ def login(body: LoginRequest, request: Request, response: Response) -> dict:
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict:
+async def logout(response: Response) -> dict:
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
 
 
 @router.get("/me")
-def me(request: Request) -> dict:
+async def me(request: Request) -> dict:
     token = request.cookies.get(COOKIE)
     state = get_state(request)
     return {"authenticated": bool(token and state.signer.verify(token))}
