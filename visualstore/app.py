@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from visualstore import __version__
 from visualstore.api import auth as auth_api
@@ -27,6 +28,8 @@ from visualstore.jobs.io import IO_HANDLERS
 from visualstore.jobs.io.backup import plan_backups
 from visualstore.jobs.scheduler import Scheduler
 from visualstore.profiles import ProfileError, ProfileNotFound, ProfileRegistry
+
+DEFAULT_STATIC_DIR = Path(__file__).parent / "static"
 
 
 @dataclass
@@ -95,5 +98,25 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(settings_api.router)
     app.include_router(overview_api.router)
     app.include_router(backups_api.router)
-    # Task 14 adds static files after the routers.
+    _mount_static(app, static_dir or DEFAULT_STATIC_DIR)
     return app
+
+
+def _mount_static(app: FastAPI, static_dir: Path) -> None:
+    """Serve the frontend build. Registered after every API router so /api keeps its 404s."""
+    index = static_dir / "index.html"
+    if not index.is_file():
+        return
+    assets = static_dir / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+    root = static_dir.resolve()
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa(path: str) -> FileResponse:
+        if path.startswith("api/") or path == "api":
+            raise HTTPException(status_code=404, detail="Not found.")
+        candidate = (static_dir / path).resolve()
+        if path and candidate.is_file() and candidate.is_relative_to(root):
+            return FileResponse(candidate)
+        return FileResponse(index)
