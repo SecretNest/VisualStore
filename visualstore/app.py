@@ -14,7 +14,11 @@ from fastapi.responses import JSONResponse
 
 from visualstore import __version__
 from visualstore.api import auth as auth_api
+from visualstore.api import backups as backups_api
+from visualstore.api import jobs as jobs_api
+from visualstore.api import overview as overview_api
 from visualstore.api import profiles as profiles_api
+from visualstore.api import settings as settings_api
 from visualstore.api import system as system_api
 from visualstore.auth import LoginRateLimiter, SessionSigner
 from visualstore.config import Config
@@ -87,5 +91,9 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(auth_api.router)
     app.include_router(system_api.router)
     app.include_router(profiles_api.router)
-    # Task 11 and Task 12 add their routers here. Task 14 adds static files after the routers.
+    app.include_router(jobs_api.router)
+    app.include_router(settings_api.router)
+    app.include_router(overview_api.router)
+    app.include_router(backups_api.router)
+    # Task 14 adds static files after the routers.
     return app
