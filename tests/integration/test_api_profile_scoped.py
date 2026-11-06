@@ -98,3 +98,16 @@ def test_backup_trigger_overview_and_listing(client, config):
     assert overview["last_backup"]["metadata"] is not None
     assert overview["jobs"]["done"] >= 1
     assert overview["recent_jobs"][0]["type"] == "backup"
+
+
+def test_overview_lists_folders_and_group_counts(client, tmp_path):
+    setup_profile(client)
+    (tmp_path / "lib").mkdir()
+    body = {"name": "Lib", "path": str(tmp_path / "lib"), "role": "inbox", "compare_scope": "all"}
+    folder = client.post("/api/p/a/folders", json=body).json()
+    overview = client.get("/api/p/a/overview").json()
+    assert overview["folders"] == [
+        {"id": folder["id"], "name": "Lib", "role": "inbox", "enabled": True, "counts": {}}
+    ]
+    assert overview["groups"] == {"open": 0, "auto_resolved": 0, "resolved": 0, "dismissed": 0}
+    assert overview["dirty"] == 0
