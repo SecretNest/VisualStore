@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { Unauthorized, get, post } from "../api";
 import { setLastProfile } from "../lastProfile";
 import type { Profile } from "../types";
@@ -69,6 +69,14 @@ export default function Layout() {
           <span className="current">{profiles[0].display_name}</span>
         )}
         <nav>
+          {name && (
+            <>
+              <NavLink to={`/p/${name}/overview`}>Overview</NavLink>
+              <NavLink to={`/p/${name}/folders`}>Folders</NavLink>
+              <NavLink to={`/p/${name}/groups`}>Groups</NavLink>
+              <NavLink to={`/p/${name}/jobs`}>Jobs</NavLink>
+            </>
+          )}
           <Link to="/profiles">Profiles</Link>
           <button type="button" className="link" onClick={logout}>
             Log out

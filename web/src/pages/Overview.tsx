@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ApiError, get, post } from "../api";
+import { formatWhen } from "../format";
 import { setLastProfile } from "../lastProfile";
 import type { Job, Overview as OverviewData } from "../types";
-
-function when(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString() : "never";
-}
 
 function JobRow({ job }: { job: Job }) {
   const p = job.progress;
@@ -25,7 +22,7 @@ function JobRow({ job }: { job: Job }) {
         {job.attempts > 0 && ` (attempt ${job.attempts})`}
       </td>
       <td className="muted">{job.error ?? ""}</td>
-      <td className="muted">{when(job.created_at)}</td>
+      <td className="muted">{formatWhen(job.created_at)}</td>
     </tr>
   );
 }
@@ -76,8 +73,8 @@ export default function Overview() {
         </div>
         <div className="card">
           <h2>Backups</h2>
-          <p>Metadata: {when(data.last_backup.metadata)}</p>
-          <p>Vectors: {when(data.last_backup.vectors)}</p>
+          <p>Metadata: {formatWhen(data.last_backup.metadata)}</p>
+          <p>Vectors: {formatWhen(data.last_backup.vectors)}</p>
           <button type="button" onClick={backupNow}>
             Back up now
           </button>
