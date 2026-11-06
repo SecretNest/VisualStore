@@ -19,3 +19,9 @@ The milestone 4 task-level plan listed decisions to take before expansion.
 
 - `previews/` is derived data like `thumbs/`; backups do not include it.
 - A bulk run over thousands of groups is one job; cancelling it (queued only) is cheap, interrupting it mid-way leaves already-processed groups resolved, which is correct since each group is committed independently.
+
+## Facts learned while shipping
+
+- **Preview rendering.** libvips' shrink-on-load `thumbnail_source` ignores `fail_on` and renders a truncated PNG as a valid image, so `preview_webp` streams through the same `new_from_source(..., access="sequential", fail_on="truncated")` loader as fingerprinting and shrinks with `thumbnail_image`. Decoding happens at full resolution (bounded by `media.max_pixels`) before the shrink.
+- **Design §8.3 cross-check.** The member list shows role, path, size, distance to the nearest member and the byte-identical tag; pixel dimensions are not stored on `file` yet (milestone 5 adds media metadata), and the video frame strip is milestone 5. Everything else in §8.3 is implemented; the group's inner pairs are no longer listed separately in the UI beyond their count, since the comparison pane and the candidates page cover the use.
+- **Enter and the next group.** Confirming a group navigates to the next open group, not back to the queue; the e2e now reflects that.

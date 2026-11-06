@@ -77,6 +77,15 @@ groups stay. To evaluate a model against your ImageStore judgments, run Jobs →
 the path of the v1 `.db`; the report lands in `/data/profiles/<profile>/reports/` and is linked
 from the same page.
 
+**Reviewing.** The Groups page lists open groups filtered by status, band and Folder. Group
+detail compares the selected member with its nearest neighbour side by side (`s`), as an overlay
+with an opacity slider (`o`) or blinking (`b`); `n`/`p` pick another member to compare with and
+Space swaps the two; `k`/`d` mark keep/delete, `Enter` confirms and moves to the next group, `Esc`
+skips. The file detail page lists candidate pairs beyond the grouping threshold with "related" /
+"unrelated" judgments, and offers move and rename. "Default rules for this filter" on the Groups
+page previews and executes the default resolution for every open group matching the filter in one
+job; when more files than `bulk.confirm_threshold` would be deleted, the count must be typed back.
+
 **Behind a reverse proxy.** HTTPS is the proxy's job; VisualStore speaks plain HTTP and its
 session cookie is not marked `Secure`, so terminate TLS in front of it and do not expose port
 8080 directly. Set `FORWARDED_ALLOW_IPS` to the proxy's address (uvicorn reads it from the

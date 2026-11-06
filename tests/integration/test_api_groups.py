@@ -206,7 +206,9 @@ def test_move_and_rename_endpoints_validate_and_queue(client, seeded):
     arch = id_to_str(s["arch"])
     assert client.post(f"/api/p/a/files/{b}/rename", json={"name": "../x.jpg"}).status_code == 400
     assert client.post(f"/api/p/a/files/{b}/rename", json={"name": "c.jpg"}).status_code == 409
-    bad_dir = client.post(f"/api/p/a/files/{b}/move", json={"folder_id": arch, "directory": "../up"})
+    bad_dir = client.post(
+        f"/api/p/a/files/{b}/move", json={"folder_id": arch, "directory": "../up"}
+    )
     assert bad_dir.status_code == 400
     nowhere = client.post(
         f"/api/p/a/files/{b}/move",
