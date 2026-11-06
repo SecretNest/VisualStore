@@ -14,6 +14,7 @@ from visualstore.db import settings as settings_db
 from visualstore.domain.bands import BANDS, band, band_bounds, thresholds_from
 from visualstore.domain.neighbours import nearest
 from visualstore.ids import id_to_str
+from visualstore.jobs.resolve import commit_decisions
 from visualstore.jobs.types import PRIORITY_USER
 
 router = APIRouter(prefix="/api/p/{name}", tags=["groups"], dependencies=[Depends(require_auth)])
@@ -47,11 +48,7 @@ def _member_ids(conn, group_id: bytes) -> set[bytes]:
 
 
 def _inner_pairs(conn, member_ids: set[bytes]) -> list:
-    return [
-        p
-        for p in pairs_db.edges_touching(conn, member_ids)
-        if bytes(p["file_a"]) in member_ids and bytes(p["file_b"]) in member_ids
-    ]
+    return pairs_db.inner_pairs(conn, member_ids)
 
 
 @router.get("/groups")
@@ -143,14 +140,8 @@ async def resolve_group(
             status_code=400,
             detail=f"Every member needs a decision; missing: {', '.join(undecided)}",
         )
-    groups_db.set_decisions(conn, gid, {m: decisions[m] for m in members})
-    kept = {m for m in members if decisions[m] == "keep"}
-    for p in _inner_pairs(conn, kept):
-        if p["judgment"] == "none":
-            pairs_db.set_judgment(
-                conn, bytes(p["file_a"]), bytes(p["file_b"]), "related_keep", "user"
-            )
-    trash = [id_to_str(m) for m in members if decisions[m] == "delete"]
+    trash_ids = commit_decisions(conn, gid, {m: decisions[m] for m in members})
+    trash = [id_to_str(m) for m in trash_ids]
     job = None
     if trash:
         job_id = jobs_db.enqueue(

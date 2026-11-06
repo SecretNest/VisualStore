@@ -73,6 +73,15 @@ def edges_touching(
     return conn.execute(sql, args).fetchall()
 
 
+def inner_pairs(conn: sqlite3.Connection, member_ids: set[bytes]) -> list[sqlite3.Row]:
+    """Pairs whose both ends are in `member_ids`."""
+    return [
+        p
+        for p in edges_touching(conn, member_ids)
+        if bytes(p["file_a"]) in member_ids and bytes(p["file_b"]) in member_ids
+    ]
+
+
 def pairs_of_file(conn: sqlite3.Connection, file_id: bytes) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM pair WHERE file_a = ? OR file_b = ? ORDER BY distance", (file_id, file_id)

@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "similarity.variant": 0.3,
     "similarity.top_k": 64,
     "media.max_pixels": 80_000_000,
+    "bulk.confirm_threshold": 100,
 }
 
 _AT_LEAST_ONE = {

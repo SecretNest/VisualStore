@@ -228,33 +228,39 @@ def _restore_one(conn: sqlite3.Connection, ctx: IoContext, action_id: bytes) -> 
     return None
 
 
-def run_apply_action(ctx: IoContext) -> dict:
-    now = datetime.now(UTC)
+def execute_action(
+    conn: sqlite3.Connection, vconn: sqlite3.Connection, ctx: IoContext, params: dict, now: datetime
+) -> dict:
+    """The body of apply_action for one params dict; the bulk job calls it per group."""
     result: dict = {"trashed": 0, "restored": 0, "skipped": []}
-    group_text = ctx.params.get("group_id")
+    group_text = params.get("group_id")
     group_id = id_from_str(group_text) if group_text else None
-    with closing(ctx.open_metadata()) as conn, closing(ctx.open_vectors()) as vconn:
-        for text in ctx.params.get("trash", []):
-            file_id = id_from_str(text)
-            reason = _trash_one(conn, ctx, file_id, now, group_id)
-            if reason:
-                result["skipped"].append({"id": text, "reason": reason})
-            else:
-                fp.delete_for_files(vconn, [file_id])
-                result["trashed"] += 1
-        for text in ctx.params.get("restore", []):
-            reason = _restore_one(conn, ctx, id_from_str(text))
-            if reason:
-                result["skipped"].append({"id": text, "reason": reason})
-            else:
-                result["restored"] += 1
-        if group_id is not None and not result["skipped"]:
-            g = groups_db.get_group(conn, group_id)
-            if g is not None and g["status"] == "open":
-                groups_db.set_status(conn, bytes(g["id"]), "resolved")
-        if result["trashed"] and not jobs_db.has_active(conn, "regroup"):
-            jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
+    for text in params.get("trash", []):
+        file_id = id_from_str(text)
+        reason = _trash_one(conn, ctx, file_id, now, group_id)
+        if reason:
+            result["skipped"].append({"id": text, "reason": reason})
+        else:
+            fp.delete_for_files(vconn, [file_id])
+            result["trashed"] += 1
+    for text in params.get("restore", []):
+        reason = _restore_one(conn, ctx, id_from_str(text))
+        if reason:
+            result["skipped"].append({"id": text, "reason": reason})
+        else:
+            result["restored"] += 1
+    if group_id is not None and not result["skipped"]:
+        g = groups_db.get_group(conn, group_id)
+        if g is not None and g["status"] == "open":
+            groups_db.set_status(conn, bytes(g["id"]), "resolved")
+    if result["trashed"] and not jobs_db.has_active(conn, "regroup"):
+        jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
     return result
+
+
+def run_apply_action(ctx: IoContext) -> dict:
+    with closing(ctx.open_metadata()) as conn, closing(ctx.open_vectors()) as vconn:
+        return execute_action(conn, vconn, ctx, ctx.params, datetime.now(UTC))
 
 
 # -- purge ---------------------------------------------------------------------------------

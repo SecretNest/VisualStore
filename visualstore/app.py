@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from visualstore import __version__
 from visualstore.api import auth as auth_api
 from visualstore.api import backups as backups_api
+from visualstore.api import bulk as bulk_api
 from visualstore.api import files as files_api
 from visualstore.api import folders as folders_api
 from visualstore.api import groups as groups_api
@@ -119,6 +120,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(overview_api.router)
     app.include_router(backups_api.router)
     app.include_router(folders_api.router)
+    app.include_router(bulk_api.router)  # before groups: /groups/bulk/* must not match {group_id}
     app.include_router(groups_api.router)
     app.include_router(files_api.router)
     app.include_router(models_api.router)

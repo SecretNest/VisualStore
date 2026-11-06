@@ -16,6 +16,7 @@ KIND_OF: dict[str, str] = {
     "rebuild_index": "io",
     "eval": "io",
     "model_switch": "io",
+    "bulk_resolve": "io",
     "scan": "io",
     "regroup": "io",
     "apply_action": "io",
