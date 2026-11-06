@@ -48,9 +48,10 @@ def dirty_count(conn: sqlite3.Connection) -> int:
 _MEMBER_SQL = (
     "SELECT m.file_id, m.decision, f.directory, f.name, f.size, f.sha1, f.state,"
     " f.folder_id, fo.name AS folder_name, fo.path AS folder_path, fo.role,"
-    " fo.priority AS folder_priority"
+    " fo.priority AS folder_priority, e.media_type"
     " FROM file_group_member m JOIN file f ON f.id = m.file_id"
     " JOIN folder fo ON fo.id = f.folder_id"
+    " JOIN extension e ON e.id = f.extension_id"
 )
 
 

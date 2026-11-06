@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -102,6 +103,30 @@ async def file_content(
     )
 
 
+async def _cached_render(cache: Path, render: Callable[[], bytes]) -> Path:
+    """Render once per file (per-file lock), at most two renders at a time, atomic cache write."""
+    lock = _RENDERING.setdefault(cache, asyncio.Lock())
+    try:
+        async with lock:
+            if cache.is_file():
+                return cache
+            async with _RENDER_SLOTS:
+                try:
+                    data = await asyncio.to_thread(render)
+                except (NotMedia, Unreadable) as exc:
+                    raise HTTPException(
+                        status_code=404, detail=f"Cannot decode the file: {exc}"
+                    ) from None
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(cache)
+    finally:
+        if not lock.locked() and _RENDERING.get(cache) is lock:
+            _RENDERING.pop(cache, None)
+    return cache
+
+
 @router.get("/{file_id}/preview")
 async def file_preview(
     file_id: str, request: Request, name: str = Depends(get_profile)
@@ -121,25 +146,75 @@ async def file_preview(
     from visualstore.media.decode import preview_webp  # pyvips: not imported server-wide
 
     max_pixels = int(settings_db.get(conn, "media.max_pixels"))
-    lock = _RENDERING.setdefault(cache, asyncio.Lock())
-    try:
-        async with lock:
-            if cache.is_file():  # rendered by the request that held the lock before us
-                return FileResponse(cache, media_type="image/webp")
-            async with _RENDER_SLOTS:
-                try:
-                    data = await asyncio.to_thread(preview_webp, str(path), PREVIEW_PX, max_pixels)
-                except (NotMedia, Unreadable) as exc:
-                    raise HTTPException(
-                        status_code=404, detail=f"Cannot decode the file: {exc}"
-                    ) from None
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            tmp = cache.with_suffix(".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(cache)
-    finally:
-        if not lock.locked() and _RENDERING.get(cache) is lock:
-            _RENDERING.pop(cache, None)
+    await _cached_render(cache, lambda: preview_webp(str(path), PREVIEW_PX, max_pixels))
+    return FileResponse(cache, media_type="image/webp")
+
+
+def _frames_of(state, name: str, conn, fid: bytes) -> list:
+    from visualstore.db import fingerprints as fp
+
+    vconn = state.registry.vectors_conn(name)
+    return fp.frames_of_file(vconn, fid, settings_db.get(conn, "model.id"))
+
+
+@router.get("/{file_id}/frames")
+async def file_frames(file_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
+    state = get_state(request)
+    conn = state.registry.conn(name)
+    fid = parse_id(file_id)
+    row, _ = _file_and_folder(conn, fid)
+    frames = _frames_of(state, name, conn, fid)
+    return {
+        "media_type": _media_type(conn, bytes(row["extension_id"])),
+        "frames": [{"index": r["frame_index"], "time_ms": r["frame_time_ms"]} for r in frames],
+    }
+
+
+def _render_frame(path: str, media_type: str, index: int, time_ms: int, settings: dict) -> bytes:
+    from visualstore.media import animated, video
+    from visualstore.media.decode import image_from_png, preview_webp, thumbnail_webp
+    from visualstore.media.frames import sample_indices
+
+    max_pixels = int(settings["media.max_pixels"])
+    timeout = float(settings["media.ffmpeg_timeout_s"])
+    if media_type == "video" or animated.backend(path) == "ffmpeg":
+        decoded = image_from_png(video.frame_png(path, time_ms / 1000, timeout), max_pixels)
+        return thumbnail_webp(decoded, PREVIEW_PX)
+    pages = animated.page_count(path, max_pixels)
+    if pages <= 1:
+        return preview_webp(path, PREVIEW_PX, max_pixels)
+    source_pages = sample_indices(pages, int(settings["frames.max_per_file"]))
+    if index >= len(source_pages):
+        raise Unreadable(f"frame {index} is beyond the sampled pages")
+    [frame] = animated.load_pages(path, [source_pages[index]], max_pixels)
+    from visualstore.media.decode import Decoded
+
+    return thumbnail_webp(Decoded(frame.image, frame.image.width, frame.image.height), PREVIEW_PX)
+
+
+@router.get("/{file_id}/frame/{index}")
+async def file_frame(
+    file_id: str, index: int, request: Request, name: str = Depends(get_profile)
+) -> FileResponse:
+    state = get_state(request)
+    conn = state.registry.conn(name)
+    fid = parse_id(file_id)
+    row, folder = _file_and_folder(conn, fid)
+    frames = {r["frame_index"]: r["frame_time_ms"] for r in _frames_of(state, name, conn, fid)}
+    if index not in frames:
+        raise HTTPException(status_code=404, detail="No such frame.")
+    text = id_to_str(fid)
+    cache = state.registry.paths(name).previews / "frames" / text[:2] / f"{text}-{index}.webp"
+    if cache.is_file():
+        return FileResponse(cache, media_type="image/webp")
+    path = Path(folder["path"]) / files_db.relative_path(row["directory"], row["name"])
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The file is not on disk.")
+    media_type = _media_type(conn, bytes(row["extension_id"]))
+    settings = settings_db.all(conn)
+    await _cached_render(
+        cache, lambda: _render_frame(str(path), media_type, index, frames[index], settings)
+    )
     return FileResponse(cache, media_type="image/webp")
 
 

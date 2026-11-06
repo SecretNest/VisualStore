@@ -228,3 +228,8 @@ def test_move_and_rename_endpoints_validate_and_queue(client, seeded):
     renamed = client.post(f"/api/p/a/files/{b}/rename", json={"name": "b2.jpg"})
     assert renamed.status_code == 201
     assert wait_for(client, "a", renamed.json()["id"])["progress"]["result"]["renamed"] == 1
+
+
+def test_group_members_carry_their_media_type(client, seeded):
+    detail = client.get(f"/api/p/a/groups/{id_to_str(seeded['gid'])}").json()
+    assert {m["media_type"] for m in detail["group"]["members"]} == {"image"}

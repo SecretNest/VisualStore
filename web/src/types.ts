@@ -79,6 +79,17 @@ export interface GroupMember {
   folder_priority: number;
   relative_path: string;
   absolute_path: string;
+  media_type: "image" | "animated" | "video" | "other";
+}
+
+export interface FrameInfo {
+  index: number;
+  time_ms: number;
+}
+
+export interface FramesResponse {
+  media_type: "image" | "animated" | "video" | "other";
+  frames: FrameInfo[];
 }
 
 export type Band = "identical" | "near_duplicate" | "variant" | "candidate";

@@ -110,8 +110,8 @@ def _check_pixels(path: str, timeout_s: float, max_pixels: int) -> None:
     )
     try:
         width, height = (int(v) for v in out.decode().strip().splitlines()[0].split(",")[:2])
-    except (ValueError, IndexError):
-        return  # unknown dimensions: the PNG decode still enforces the cap
+    except (ValueError, IndexError) as exc:
+        raise Unreadable("ffprobe reported no frame dimensions") from exc  # fail closed
     if width * height > max_pixels:
         raise Unreadable(f"{width}x{height} exceeds the limit of {max_pixels} pixels")
 
@@ -175,6 +175,8 @@ def frame_png(path: str, time_s: float, timeout_s: float) -> bytes:
             f"{time_s:.3f}",
             "-i",
             _input(path),
+            "-map",
+            "0:v:0",
             "-frames:v",
             "1",
             "-f",
@@ -228,6 +230,8 @@ def frames_at_indices(
             *_FFMPEG,
             "-i",
             _input(path),
+            "-map",
+            "0:v:0",
             "-vf",
             f"select='{select}'",
             "-fps_mode",
