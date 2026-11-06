@@ -46,7 +46,7 @@ def test_milestone_2_defaults_and_ranges(conn):
     assert settings.get(conn, "trash.retention_days") == 30
     assert settings.get(conn, "resolution.auto_execute_identical") is True
     assert settings.get(conn, "scan.interval_hours") == 24
-    assert settings.get(conn, "grouping.group_distance") == 0.2
+    assert settings.get(conn, "grouping.group_distance") == 0.3
     settings.set(conn, "scan.interval_hours", 0)  # 0 = disabled is allowed
     with pytest.raises(ValueError):
         settings.set(conn, "trash.retention_days", 0)
@@ -56,3 +56,19 @@ def test_milestone_2_defaults_and_ranges(conn):
         settings.set(conn, "grouping.group_distance", -0.1)
     settings.set(conn, "grouping.group_distance", 0.35)
     assert settings.get(conn, "grouping.group_distance") == 0.35
+
+
+def test_milestone_3_defaults_and_string_setting(conn):
+    assert settings.get(conn, "model.id") == "sscd-resnet50-512-v1"
+    assert settings.get(conn, "similarity.candidate_distance") == 0.5
+    assert settings.get(conn, "similarity.near_duplicate") == 0.15
+    assert settings.get(conn, "similarity.variant") == 0.3
+    assert settings.get(conn, "similarity.top_k") == 64
+    assert settings.get(conn, "grouping.group_distance") == 0.3
+    assert settings.get(conn, "media.max_pixels") == 80_000_000
+    settings.set(conn, "model.id", "dinov2-vits14-384-v1")
+    assert settings.get(conn, "model.id") == "dinov2-vits14-384-v1"
+    with pytest.raises(ValueError):
+        settings.set(conn, "model.id", "")
+    with pytest.raises(ValueError):
+        settings.set(conn, "similarity.top_k", 0)

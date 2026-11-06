@@ -44,6 +44,11 @@ class IoContext:
 
         return connect(self.paths.metadata_db)
 
+    def open_vectors(self) -> sqlite3.Connection:
+        from visualstore.db.connection import connect
+
+        return connect(self.paths.vectors_db)
+
 
 IoHandler = Callable[[IoContext], dict]
 Planner = Callable[[ProfileRegistry], None]

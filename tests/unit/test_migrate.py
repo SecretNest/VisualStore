@@ -35,13 +35,13 @@ def test_connect_applies_pragmas(tmp_path):
                 "action",
             },
         ),
-        ("vectors", set()),
+        ("vectors", {"fingerprint", "index_key", "index_meta"}),
     ],
 )
 def test_shipped_migrations_create_expected_tables(tmp_path, name, tables):
     conn = connect(tmp_path / f"{name}.db")
     version = migrate(conn, migrations_dir(name))
-    assert version == {"global": 1, "profile": 2, "vectors": 1}[name]
+    assert version == {"global": 1, "profile": 2, "vectors": 2}[name]
     names = {
         r["name"]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")

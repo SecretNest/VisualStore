@@ -15,10 +15,22 @@ DEFAULTS: dict[str, Any] = {
     "trash.retention_days": 30,
     "resolution.auto_execute_identical": True,
     "scan.interval_hours": 24,  # 0 disables scheduled scans
-    "grouping.group_distance": 0.2,  # provisional until the milestone 3 evaluation
+    "grouping.group_distance": 0.3,  # provisional until the milestone 3 evaluation
+    "model.id": "sscd-resnet50-512-v1",
+    "similarity.candidate_distance": 0.5,
+    "similarity.near_duplicate": 0.15,
+    "similarity.variant": 0.3,
+    "similarity.top_k": 64,
+    "media.max_pixels": 80_000_000,
 }
 
-_AT_LEAST_ONE = {"backup.metadata.keep", "backup.vectors.keep", "trash.retention_days"}
+_AT_LEAST_ONE = {
+    "backup.metadata.keep",
+    "backup.vectors.keep",
+    "trash.retention_days",
+    "similarity.top_k",
+    "media.max_pixels",
+}
 
 
 def get(conn: sqlite3.Connection, key: str) -> Any:
@@ -35,6 +47,8 @@ def set(conn: sqlite3.Connection, key: str, value: Any) -> None:  # noqa: A001 -
         raise TypeError(
             f"setting {key!r} expects {type(DEFAULTS[key]).__name__}, got {type(value).__name__}"
         )
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(f"setting {key!r} must not be empty")
     if isinstance(value, int | float) and not isinstance(value, bool):
         minimum = 1 if key in _AT_LEAST_ONE else 0
         if value < minimum:
