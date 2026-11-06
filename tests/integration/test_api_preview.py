@@ -75,10 +75,7 @@ def test_preview_failures_are_404_with_a_reason(client, tmp_path):
     r = client.get(f"/api/p/a/files/{bad}/preview")
     assert r.status_code == 404 and r.json()["detail"].startswith("Cannot decode the file")
     video = id_to_str(add("clip.mp4", b"not decoded yet", media="mp4"))
-    assert (
-        client.get(f"/api/p/a/files/{video}/preview").json()["detail"]
-        == "No preview yet."
-    )
+    assert client.get(f"/api/p/a/files/{video}/preview").json()["detail"] == "No preview yet."
     assert (
         client.get("/api/p/a/files/00000000-0000-4000-8000-000000000000/preview").status_code == 404
     )
