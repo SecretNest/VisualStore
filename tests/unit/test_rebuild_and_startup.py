@@ -68,7 +68,11 @@ def test_rebuild_exports_then_build_writes_index_and_meta(world):
     params = json.loads(job["params"])
     assert job["type"] == "build_index" and params["dim"] == 512 and params["model_id"] == MODEL
     built = build_index(params, lambda p: None)
-    assert built["count"] == 3 and inspect(reg.paths("a").index) == {"dimensions": 512, "count": 3}
+    assert built["count"] == 3 and inspect(reg.paths("a").index) == {
+        "dimensions": 512,
+        "count": 3,
+        "dtype": "f16",
+    }
     assert not (reg.paths("a").root / "index.export.npz").exists()
     sink_build_index(make_sink_ctx(reg, "a", params, built))
     vconn = reg.vectors_conn("a")
@@ -83,7 +87,7 @@ def test_rebuild_with_no_vectors_writes_an_empty_index(world):
     reg = world
     result = run_rebuild_index(ctx_for(reg))
     assert result == {"exported": 0, "built": True, "match_jobs": 0}
-    assert inspect(reg.paths("a").index) == {"dimensions": 512, "count": 0}
+    assert inspect(reg.paths("a").index) == {"dimensions": 512, "count": 0, "dtype": "f16"}
     assert jobs_db.list_jobs(reg.conn("a"), state="queued") == []
 
 
