@@ -16,7 +16,9 @@ from fastapi.staticfiles import StaticFiles
 from visualstore import __version__
 from visualstore.api import auth as auth_api
 from visualstore.api import backups as backups_api
+from visualstore.api import files as files_api
 from visualstore.api import folders as folders_api
+from visualstore.api import groups as groups_api
 from visualstore.api import jobs as jobs_api
 from visualstore.api import overview as overview_api
 from visualstore.api import profiles as profiles_api
@@ -110,6 +112,8 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(overview_api.router)
     app.include_router(backups_api.router)
     app.include_router(folders_api.router)
+    app.include_router(groups_api.router)
+    app.include_router(files_api.router)
     _mount_static(app, static_dir or DEFAULT_STATIC_DIR)
     return app
 

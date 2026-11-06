@@ -40,3 +40,6 @@ exclude = ["docs", "web", ".superpowers"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]  # long literal lines in tests are fine; source stays at 100
