@@ -18,14 +18,29 @@ def test_connect_applies_pragmas(tmp_path):
     "name,tables",
     [
         ("global", {"profile", "secret"}),
-        ("profile", {"job", "setting"}),
+        (
+            "profile",
+            {
+                "job",
+                "setting",
+                "folder",
+                "ignored_directory",
+                "extension",
+                "file",
+                "pair",
+                "file_group",
+                "file_group_member",
+                "regroup_queue",
+                "action",
+            },
+        ),
         ("vectors", set()),
     ],
 )
 def test_shipped_migrations_create_expected_tables(tmp_path, name, tables):
     conn = connect(tmp_path / f"{name}.db")
     version = migrate(conn, migrations_dir(name))
-    assert version == 1
+    assert version == {"global": 1, "profile": 2, "vectors": 1}[name]
     names = {
         r["name"]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -36,10 +51,10 @@ def test_shipped_migrations_create_expected_tables(tmp_path, name, tables):
 
 def test_migrate_is_idempotent(tmp_path):
     conn = connect(tmp_path / "p.db")
-    assert migrate(conn, migrations_dir("profile")) == 1
-    assert migrate(conn, migrations_dir("profile")) == 1
-    assert current_version(conn) == 1
-    assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 1
+    assert migrate(conn, migrations_dir("profile")) == 2
+    assert migrate(conn, migrations_dir("profile")) == 2
+    assert current_version(conn) == 2
+    assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 2
 
 
 def test_fresh_database_reports_version_zero(tmp_path):
