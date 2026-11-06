@@ -1,0 +1,41 @@
+import pytest
+
+from visualstore.db import settings
+from visualstore.db.connection import connect
+from visualstore.db.migrate import migrate, migrations_dir
+
+
+@pytest.fixture
+def conn(tmp_path):
+    c = connect(tmp_path / "p.db")
+    migrate(c, migrations_dir("profile"))
+    return c
+
+
+def test_defaults_are_returned_when_nothing_is_stored(conn):
+    assert settings.get(conn, "backup.metadata.interval_hours") == 24
+    assert settings.get(conn, "backup.metadata.keep") == 14
+    assert settings.get(conn, "backup.vectors.interval_hours") == 168
+    assert settings.get(conn, "backup.vectors.keep") == 4
+    assert settings.all(conn) == settings.DEFAULTS
+
+
+def test_set_persists_and_overrides_default(conn):
+    settings.set(conn, "backup.metadata.keep", 30)
+    assert settings.get(conn, "backup.metadata.keep") == 30
+    assert settings.all(conn)["backup.metadata.keep"] == 30
+    assert settings.all(conn)["backup.vectors.keep"] == 4
+
+
+def test_unknown_key_is_rejected_on_get_and_set(conn):
+    with pytest.raises(KeyError):
+        settings.get(conn, "no.such.key")
+    with pytest.raises(KeyError):
+        settings.set(conn, "no.such.key", 1)
+
+
+def test_value_must_match_default_type(conn):
+    with pytest.raises(TypeError):
+        settings.set(conn, "backup.metadata.keep", "14")
+    with pytest.raises(TypeError):
+        settings.set(conn, "backup.metadata.keep", True)  # bool is not accepted for an int
