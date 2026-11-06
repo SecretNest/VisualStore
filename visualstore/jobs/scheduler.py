@@ -22,7 +22,7 @@ from visualstore.db import settings as settings_db
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import HANDLERS as COMPUTE_HANDLERS
 from visualstore.jobs.compute.protocol import ComputeMessage, ComputeRequest
-from visualstore.jobs.results import RESULT_SINKS
+from visualstore.jobs.results import RESULT_SINKS, SinkContext
 from visualstore.profiles import ProfileNotFound, ProfilePaths, ProfileRegistry
 
 log = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class IoContext:
     settings: dict
     params: dict
     report: Callable[[dict], None]  # thread-safe; may be called from the handler's thread
+    model_dir: Path = Path("/data/models")
 
     def open_metadata(self) -> sqlite3.Connection:
         """A connection of the handler's own, for use inside the worker thread. Close it."""
@@ -70,6 +71,7 @@ class Scheduler:
         pool: ComputeBackend,
         io_handlers: dict[str, IoHandler],
         backup_dir: Path,
+        model_dir: Path = Path("/data/models"),
         planners: Sequence[Planner] = (),
         poll_interval: float = 0.5,
         plan_interval: float = 60.0,
@@ -78,6 +80,7 @@ class Scheduler:
         self.pool = pool
         self.io_handlers = io_handlers
         self.backup_dir = backup_dir
+        self.model_dir = model_dir
         self.planners = list(planners)
         self.poll_interval = poll_interval
         self.plan_interval = plan_interval
@@ -219,7 +222,19 @@ class Scheduler:
         sink = RESULT_SINKS.get(row["type"])
         if sink is not None:
             try:
-                sink(conn, profile, json.loads(row["params"]), result)
+                sink(
+                    SinkContext(
+                        conn=conn,
+                        vconn=self.registry.vectors_conn(profile),
+                        registry=self.registry,
+                        profile=profile,
+                        paths=self.registry.paths(profile),
+                        settings=settings_db.all(conn),
+                        model_dir=self.model_dir,
+                        params=json.loads(row["params"]),
+                        result=result,
+                    )
+                )
             except Exception as exc:  # noqa: BLE001 - the attempt failed; compute is idempotent
                 log.exception("result sink for %s failed", row["type"])
                 jobs_db.record_failure(conn, job_id, f"result sink: {type(exc).__name__}: {exc}")
@@ -268,6 +283,7 @@ class Scheduler:
             settings=settings_db.all(conn),
             params=params,
             report=report,
+            model_dir=self.model_dir,
         )
         try:
             result = await asyncio.to_thread(handler, ctx)

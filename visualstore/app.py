@@ -69,6 +69,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
             pool,
             io_handlers=IO_HANDLERS,
             backup_dir=config.backup_dir,
+            model_dir=config.model_dir,
             planners=[
                 partial(plan_backups, backup_dir=config.backup_dir),
                 plan_scans,

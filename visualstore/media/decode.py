@@ -47,6 +47,8 @@ def load_image(path: str, max_pixels: int) -> Decoded:
             img = img.colourspace("srgb")
         if img.bands > 3:
             img = img.extract_band(0, n=3)
+        if img.format != "uchar":  # 16-bit / float sources: bound the buffer to w*h*3 bytes
+            img = img.cast("uchar")
         img = img.copy_memory()  # decode now so truncated data fails here, not later
     except pyvips.Error as exc:
         raise Unreadable(str(exc)) from exc

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from contextlib import closing
 
 from visualstore.db import files as files_db
+from visualstore.db import fingerprints as fp
 from visualstore.db import folders as folders_db
 from visualstore.db import jobs as jobs_db
 from visualstore.domain.scan import (
@@ -25,6 +26,7 @@ from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import sha1_of
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
+from visualstore.models.registry import get_spec, job_params
 
 FINGERPRINT_BATCH = 64
 
@@ -150,12 +152,16 @@ def run_scan(ctx: IoContext) -> dict:
 
         to_delete = [f.id for f in plan.missing if f.id not in moved_ids]
         files_db.delete_files(conn, to_delete)
+        gone_vectors = to_delete + [fid for fid, _ in plan.changed]
+        if gone_vectors:
+            with closing(ctx.open_vectors()) as vconn:
+                fp.delete_for_files(vconn, gone_vectors)
         if to_delete and not jobs_db.has_active(conn, "regroup"):
             jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
 
         default_priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
         priority = int(ctx.params.get("priority") or default_priority)
-        jobs = _enqueue_fingerprints(conn, folder, priority)
+        jobs = _enqueue_fingerprints(conn, folder, priority, ctx)
         return {
             "inserted": len(plan.insert) - len(moved_ids),
             "changed": len(plan.changed),
@@ -178,8 +184,10 @@ def _check_root(folder_path: str) -> None:
         raise ScanError(f"Folder path is not available: {folder_path} ({exc})") from exc
 
 
-def _enqueue_fingerprints(conn, folder, priority: int) -> int:
+def _enqueue_fingerprints(conn, folder, priority: int, ctx: IoContext) -> int:
     extensions = {bytes(r["id"]): r["media_type"] for r in folders_db.list_extensions(conn)}
+    model = job_params(get_spec(ctx.settings["model.id"]), ctx.model_dir)
+    max_pixels = int(ctx.settings["media.max_pixels"])
     pending = files_db.files_by_state(conn, "new", bytes(folder["id"]), limit=1_000_000)
     count = 0
     for start in range(0, len(pending), FINGERPRINT_BATCH):
@@ -197,7 +205,10 @@ def _enqueue_fingerprints(conn, folder, priority: int) -> int:
                         "media_type": extensions.get(bytes(r["extension_id"]), "other"),
                     }
                     for r in batch
-                ]
+                ],
+                "model": model,
+                "max_pixels": max_pixels,
+                "priority": priority,
             },
         )
         count += 1

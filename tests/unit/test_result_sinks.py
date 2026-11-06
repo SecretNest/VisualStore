@@ -22,10 +22,17 @@ async def test_sink_runs_before_done_and_sees_params_and_result(registry, tmp_pa
     monkeypatch.setitem(
         results.RESULT_SINKS,
         "ping",
-        lambda conn, profile, params, result: seen.append((profile, params, result)),
+        lambda ctx: seen.append((ctx.profile, ctx.params, ctx.result)),
     )
     pool = FakePool()
-    sched = Scheduler(registry, pool, io_handlers={}, backup_dir=tmp_path / "b", plan_interval=1000)
+    sched = Scheduler(
+        registry,
+        pool,
+        io_handlers={},
+        backup_dir=tmp_path / "b",
+        model_dir=tmp_path / "m",
+        plan_interval=1000,
+    )
     conn = registry.conn("a")
     job_id = jobs_db.enqueue(conn, type="ping", kind="compute", params={"echo": "hi"})
     await sched.tick()
@@ -37,12 +44,19 @@ async def test_sink_runs_before_done_and_sees_params_and_result(registry, tmp_pa
 
 
 async def test_sink_failure_counts_as_a_failed_attempt(registry, tmp_path, monkeypatch):
-    def explode(conn, profile, params, result):
+    def explode(ctx):
         raise RuntimeError("sink broke")
 
     monkeypatch.setitem(results.RESULT_SINKS, "ping", explode)
     pool = FakePool()
-    sched = Scheduler(registry, pool, io_handlers={}, backup_dir=tmp_path / "b", plan_interval=1000)
+    sched = Scheduler(
+        registry,
+        pool,
+        io_handlers={},
+        backup_dir=tmp_path / "b",
+        model_dir=tmp_path / "m",
+        plan_interval=1000,
+    )
     conn = registry.conn("a")
     job_id = jobs_db.enqueue(conn, type="ping", kind="compute")
     await sched.tick()
@@ -69,6 +83,7 @@ async def test_io_context_opens_its_own_connection(registry, tmp_path):
         FakePool(),
         io_handlers={"probe": handler},
         backup_dir=tmp_path / "b",
+        model_dir=tmp_path / "m",
         plan_interval=1000,
     )
     jobs_db.enqueue(registry.conn("a"), type="probe", kind="io")

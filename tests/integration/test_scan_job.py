@@ -51,6 +51,7 @@ def ctx_for(reg, folder, priority=None):
         settings=settings_db.all(conn),
         params=params,
         report=lambda p: None,
+        model_dir=reg.data_dir / "models",
     )
 
 
@@ -199,3 +200,13 @@ def test_deletions_queue_a_regroup(world):
     (lib / "two.PNG").unlink()
     run_scan(ctx_for(reg, folder))
     assert jobs_db.has_active(conn, "regroup")
+
+
+def test_fingerprint_jobs_carry_model_and_limits(world):
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    [job] = jobs_db.list_jobs(conn, state="queued")
+    params = json.loads(job["params"])
+    assert params["model"]["id"] == "sscd-resnet50-512-v1" and params["model"]["dim"] == 512
+    assert params["model"]["path"].endswith("sscd-resnet50-512-v1.onnx")
+    assert params["max_pixels"] == 80_000_000 and params["priority"] == 50

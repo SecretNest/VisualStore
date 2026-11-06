@@ -12,6 +12,7 @@ from pathlib import Path
 
 from visualstore.db import actions as actions_db
 from visualstore.db import files as files_db
+from visualstore.db import fingerprints as fp
 from visualstore.db import folders as folders_db
 from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
@@ -178,22 +179,9 @@ def _restore_one(conn: sqlite3.Connection, ctx: IoContext, action_id: bytes) -> 
         sha1=sha1,
         file_id=file_id,
     )
-    if sha1:
-        results.sink_fingerprint(
-            conn,
-            ctx.profile,
-            {},
-            {
-                "files": [
-                    {
-                        "id": before["file_id"],
-                        "sha1": before["sha1"],
-                        "state": "fingerprinted",
-                        "size": before["size"],
-                    }
-                ]
-            },
-        )
+    if sha1 and results.link_identical(conn, file_id, sha1):
+        if not jobs_db.has_active(conn, "regroup"):
+            jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
     actions_db.supersede(conn, action_id)
     actions_db.record(
         conn,
@@ -211,12 +199,14 @@ def run_apply_action(ctx: IoContext) -> dict:
     result: dict = {"trashed": 0, "restored": 0, "skipped": []}
     group_text = ctx.params.get("group_id")
     group_id = id_from_str(group_text) if group_text else None
-    with closing(ctx.open_metadata()) as conn:
+    with closing(ctx.open_metadata()) as conn, closing(ctx.open_vectors()) as vconn:
         for text in ctx.params.get("trash", []):
-            reason = _trash_one(conn, ctx, id_from_str(text), now, group_id)
+            file_id = id_from_str(text)
+            reason = _trash_one(conn, ctx, file_id, now, group_id)
             if reason:
                 result["skipped"].append({"id": text, "reason": reason})
             else:
+                fp.delete_for_files(vconn, [file_id])
                 result["trashed"] += 1
         for text in ctx.params.get("restore", []):
             reason = _restore_one(conn, ctx, id_from_str(text))

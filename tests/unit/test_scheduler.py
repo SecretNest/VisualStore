@@ -65,6 +65,7 @@ def scheduler(registry, pool, tmp_path):
         pool,
         io_handlers={"echo": echo, "boom": boom},
         backup_dir=tmp_path / "backups",
+        model_dir=tmp_path / "models",
         plan_interval=1000.0,
     )
 
@@ -180,6 +181,7 @@ async def test_planners_run_on_first_tick_and_then_per_interval(registry, pool, 
         pool,
         io_handlers={},
         backup_dir=tmp_path / "b",
+        model_dir=tmp_path / "models",
         planners=[lambda reg: calls.append(reg.names())],
         plan_interval=1000.0,
     )

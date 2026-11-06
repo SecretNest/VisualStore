@@ -70,6 +70,7 @@ def ctx_for(reg, params, **overrides):
         settings=settings,
         params=params,
         report=lambda p: None,
+        model_dir=reg.data_dir / "models",
     )
 
 
