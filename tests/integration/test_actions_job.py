@@ -1,0 +1,209 @@
+import hashlib
+import os
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from visualstore.db import actions, files, folders, groups, pairs
+from visualstore.db import settings as settings_db
+from visualstore.db.groups import NewGroup
+from visualstore.ids import id_to_str
+from visualstore.jobs.io import IO_HANDLERS
+from visualstore.jobs.io.actions import (
+    ActionError,
+    move_file,
+    remove_empty_parents,
+    run_apply_action,
+    run_purge_trash,
+    trash_path,
+)
+from visualstore.jobs.scheduler import IoContext
+from visualstore.profiles import ProfileRegistry
+
+
+@pytest.fixture
+def world(tmp_path):
+    reg = ProfileRegistry(tmp_path / "data")
+    reg.open()
+    reg.create("a")
+    conn = reg.conn("a")
+    lib = tmp_path / "lib"
+    (lib / "sub").mkdir(parents=True)
+    folder = folders.create_folder(
+        conn, name="Lib", path=str(lib), role="inbox", compare_scope="all"
+    )
+    ext = folders.extension_map(conn)["jpg"]["id"]
+
+    def add(rel, content):
+        directory, _, name = rel.rpartition("/")
+        p = lib / rel
+        p.write_bytes(content)
+        st = p.stat()
+        fid = files.insert_file(
+            conn,
+            folder_id=folder,
+            directory=directory,
+            name=name,
+            extension_id=ext,
+            size=st.st_size,
+            mtime=st.st_mtime_ns,
+        )
+        files.set_fingerprint_result(
+            conn, fid, sha1=hashlib.sha1(content).digest(), state="fingerprinted"
+        )
+        return fid
+
+    yield reg, conn, folder, lib, add
+    reg.close()
+
+
+def ctx_for(reg, params, **overrides):
+    conn = reg.conn("a")
+    settings = settings_db.all(conn)
+    settings.update(overrides)
+    return IoContext(
+        profile="a",
+        paths=reg.paths("a"),
+        backup_dir=reg.data_dir / "bk",
+        global_db_path=reg.global_db_path,
+        settings=settings,
+        params=params,
+        report=lambda p: None,
+    )
+
+
+def test_trash_moves_file_keeps_relative_path_and_records_action(world):
+    reg, conn, folder, lib, add = world
+    a = add("sub/a.jpg", b"aaa")
+    b = add("sub/b.jpg", b"aaa")
+    pairs.upsert_sha1_pair(conn, a, b)
+    [gid] = groups.replace_groups(
+        conn, [], [NewGroup(frozenset({a, b}), 0.0, True, "open", {a: "keep", b: "delete"})]
+    )
+
+    result = run_apply_action(ctx_for(reg, {"group_id": id_to_str(gid), "trash": [id_to_str(b)]}))
+    assert result["trashed"] == 1 and result["skipped"] == []
+    month = datetime.now(UTC).strftime("%Y-%m")
+    moved = lib / ".visualstore-trash" / month / "sub" / "b.jpg"
+    assert moved.read_bytes() == b"aaa" and not (lib / "sub" / "b.jpg").exists()
+    assert files.get_file(conn, b) is None and pairs.pairs_of_file(conn, a) == []
+    [act] = actions.list_trash(conn)
+    d = actions.action_to_dict(act)
+    assert d["before"]["relative_path"] == "sub/b.jpg" and d["after"]["path"] == str(moved)
+    assert d["before"]["sha1"] == hashlib.sha1(b"aaa").hexdigest()
+    assert groups.get_group(conn, gid)["status"] == "resolved"
+    assert set(groups.pop_dirty(conn)) == {a}
+    assert IO_HANDLERS["apply_action"] is run_apply_action
+    assert IO_HANDLERS["purge_trash"] is run_purge_trash
+
+
+def test_restore_brings_the_file_back_with_its_id_and_pairs(world):
+    reg, conn, folder, lib, add = world
+    a = add("sub/a.jpg", b"aaa")
+    b = add("sub/b.jpg", b"aaa")
+    pairs.upsert_sha1_pair(conn, a, b)
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(b)]}))
+    [act] = actions.list_trash(conn)
+    result = run_apply_action(ctx_for(reg, {"restore": [id_to_str(act["id"])]}))
+    assert result["restored"] == 1
+    row = files.find_file(conn, folder, "sub", "b.jpg")
+    assert row["id"] == b and row["state"] == "fingerprinted"
+    assert row["sha1"] == hashlib.sha1(b"aaa").digest()
+    assert (lib / "sub" / "b.jpg").read_bytes() == b"aaa"
+    assert len(pairs.pairs_of_file(conn, a)) == 1  # sha1 pair re-linked
+    assert actions.list_trash(conn) == [] and actions.get(conn, act["id"])["superseded_at"]
+    assert any(r["type"] == "restore" for r in conn.execute("SELECT type FROM action"))
+
+    (lib / "sub" / "b.jpg").write_bytes(b"new occupant")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(b)]}))  # trash again (moves the occupant)
+    [act2] = actions.list_trash(conn)
+    (lib / "sub" / "b.jpg").write_bytes(b"another")  # target taken: restore must refuse
+    result = run_apply_action(ctx_for(reg, {"restore": [id_to_str(act2["id"])]}))
+    assert result["restored"] == 0 and result["skipped"][0]["reason"] == "exists"
+    assert actions.list_trash(conn) != []
+
+
+def test_trash_name_collision_gets_a_suffix_and_disk_failure_leaves_db_intact(world, monkeypatch):
+    """Review Focus 3."""
+    reg, conn, folder, lib, add = world
+    a = add("x.jpg", b"first")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(a)]}))
+    b = add("x.jpg", b"second")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(b)]}))
+    month = datetime.now(UTC).strftime("%Y-%m")
+    names = sorted(p.name for p in (lib / ".visualstore-trash" / month).iterdir())
+    assert names == ["x (1).jpg", "x.jpg"]
+
+    c = add("y.jpg", b"third")
+
+    def boom(src, dst):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(ActionError):
+        run_apply_action(ctx_for(reg, {"trash": [id_to_str(c)]}))
+    assert files.get_file(conn, c) is not None and (lib / "y.jpg").exists()
+    assert len(actions.list_trash(conn)) == 2
+
+
+def test_move_file_cross_device_falls_back_to_copy(world, monkeypatch, tmp_path):
+    reg, conn, folder, lib, add = world
+    src = lib / "cd.jpg"
+    src.write_bytes(b"payload")
+
+    def exdev(a, b):
+        raise OSError(18, "Invalid cross-device link")
+
+    monkeypatch.setattr(os, "replace", exdev)
+    dest = move_file(src, tmp_path / "elsewhere" / "cd.jpg")
+    assert dest.read_bytes() == b"payload" and not src.exists()
+
+
+def test_permanent_delete_when_trash_disabled(world):
+    reg, conn, folder, lib, add = world
+    a = add("gone.jpg", b"g")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(a)]}, **{"trash.enabled": False}))
+    assert not (lib / "gone.jpg").exists() and not (lib / ".visualstore-trash").exists()
+    [act] = conn.execute("SELECT * FROM action").fetchall()
+    assert actions.action_to_dict(act)["after"] == {"path": None, "permanent": True}
+    assert actions.list_trash(conn) == []  # permanent deletions are not restorable
+
+
+def test_purge_removes_expired_trash_and_empty_dirs(world):
+    reg, conn, folder, lib, add = world
+    a = add("sub/old.jpg", b"o")
+    b = add("sub/fresh.jpg", b"f")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(a), id_to_str(b)]}))
+    old_act = next(
+        r
+        for r in actions.list_trash(conn)
+        if actions.action_to_dict(r)["before"]["name"] == "old.jpg"
+    )
+    forty_days_ago = (datetime.now(UTC) - timedelta(days=40)).isoformat(timespec="seconds")
+    with conn:
+        conn.execute("UPDATE action SET at = ? WHERE id = ?", (forty_days_ago, old_act["id"]))
+    result = run_purge_trash(ctx_for(reg, {}))
+    assert result == {"purged": 1, "missing": 0}
+    remaining = [actions.action_to_dict(r)["before"]["name"] for r in actions.list_trash(conn)]
+    assert remaining == ["fresh.jpg"]
+    assert not any(p.name == "old.jpg" for p in (lib / ".visualstore-trash").rglob("*"))
+    assert not (lib / "sub").exists()  # emptied source directory cleaned up after trashing
+
+
+def test_remove_empty_parents_stops_at_root_and_trash(tmp_path):
+    root = tmp_path / "r"
+    deep = root / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    remove_empty_parents(deep, stop_at=root)
+    assert root.exists() and not (root / "a").exists()
+    trash = root / ".visualstore-trash" / "2026-11" / "x"
+    trash.mkdir(parents=True)
+    remove_empty_parents(trash, stop_at=root)
+    assert (root / ".visualstore-trash").exists()
+    assert not (root / ".visualstore-trash" / "2026-11").exists()
+
+
+def test_trash_path_layout():
+    p = trash_path("/media/lib", "a/b", "c.jpg", datetime(2026, 11, 6, tzinfo=UTC))
+    assert p == Path("/media/lib/.visualstore-trash/2026-11/a/b/c.jpg")
