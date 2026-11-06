@@ -24,3 +24,9 @@ The milestone 3 task-level plan listed decisions to take before expansion. They 
 - Milestone 5 adds frames per file without schema changes.
 - A model switch is a setting change plus a `model_switch` job; old vectors stay until cleanup.
 - Anyone running without internet access mounts a model directory and sets `VISUALSTORE_MODEL_DIR`.
+
+## Facts learned while shipping
+
+- **Export path.** Both models exported with the legacy TorchScript ONNX exporter (`torch.onnx.export(..., dynamo=False)`, opset 17, torch 2.9 CPU wheels); the SSCD TorchScript checkpoint loads with `torch.jit.load` and matches the ONNX output to 2.7e-7. DINOv2 loads through `torch.hub` without xformers (the warnings are harmless).
+- **Import order.** On the runtime image (Debian bookworm, usearch 2.26, onnxruntime 1.31) importing onnxruntime *after* usearch's extension module segfaults the process; `visualstore.index.usearch_index` therefore imports onnxruntime first, and `tests/unit/test_import_order.py` guards it. The order is harmless on hosts where the crash does not occur.
+- **Synthetic images are poor evaluation material.** Smooth gradients and Perlin noise collapse to near-identical SSCD embeddings regardless of content; the real-model smoke test draws coloured shapes on a gradient instead. Thresholds are still to be measured on the user's library through the evaluation job.
