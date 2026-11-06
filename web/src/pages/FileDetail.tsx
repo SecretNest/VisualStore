@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ApiError, get, put } from "../api";
+import { ApiError, get, post, put } from "../api";
 import Thumb from "../components/Thumb";
 import { formatBytes } from "../format";
-import type { FileDetail as Detail } from "../types";
+import type { FileDetail as Detail, Folder, Job } from "../types";
 
 export default function FileDetail() {
   const { name = "", fileId = "" } = useParams();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [newName, setNewName] = useState("");
+  const [moveTo, setMoveTo] = useState({ folder_id: "", directory: "" });
 
   const load = useCallback(async () => {
     try {
-      setDetail(await get<Detail>(`/api/p/${name}/files/${fileId}`));
+      const [d, f] = await Promise.all([get<Detail>(`/api/p/${name}/files/${fileId}`), get<Folder[]>(`/api/p/${name}/folders`)]);
+      setDetail(d);
+      setFolders(f);
+      setNewName(d.name);
+      setMoveTo({ folder_id: d.folder_id, directory: d.directory });
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load the file.");
@@ -32,6 +39,17 @@ export default function FileDetail() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not record the judgment.");
+    }
+  }
+
+  async function act(path: string, body: unknown, what: string) {
+    setError(null);
+    try {
+      const job = await post<Job>(path, body);
+      setNotice(`${what} queued as job ${job.id}. The page updates once it has run.`);
+      window.setTimeout(() => void load(), 2000);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Could not ${what.toLowerCase()}.`);
     }
   }
 
@@ -72,6 +90,49 @@ export default function FileDetail() {
           Open original
         </a>
       </p>
+
+      <h2>Rename / move</h2>
+      <form
+        className="inline"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void act(`/api/p/${name}/files/${detail.id}/rename`, { name: newName }, "Rename");
+        }}
+      >
+        <label>
+          New name
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} required />
+        </label>
+        <button type="submit" disabled={newName === detail.name}>
+          Rename
+        </button>
+      </form>
+      <form
+        className="inline"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void act(`/api/p/${name}/files/${detail.id}/move`, moveTo, "Move");
+        }}
+      >
+        <label>
+          Folder
+          <select value={moveTo.folder_id} onChange={(e) => setMoveTo({ ...moveTo, folder_id: e.target.value })} required>
+            <option value="">choose</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Directory (relative, empty for the root)
+          <input value={moveTo.directory} onChange={(e) => setMoveTo({ ...moveTo, directory: e.target.value })} />
+        </label>
+        <button type="submit" disabled={!moveTo.folder_id}>
+          Move
+        </button>
+      </form>
 
       <h2>Candidate pairs</h2>
       <p className="muted">Similar beyond the grouping threshold but within the candidate distance. Judging a pair changes the groups.</p>

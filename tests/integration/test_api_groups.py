@@ -198,3 +198,27 @@ def test_file_detail_lists_candidates_beyond_the_grouping_threshold(client, seed
         d["candidates"][0]["relative_path"] == "cand.jpg" and d["candidates"][0]["distance"] == 0.4
     )
     assert d["candidates"][0]["group_id"] is None and d["group_id"] == id_to_str(s["gid"])
+
+
+def test_move_and_rename_endpoints_validate_and_queue(client, seeded):
+    s = seeded
+    b = id_to_str(s["b"])
+    arch = id_to_str(s["arch"])
+    assert client.post(f"/api/p/a/files/{b}/rename", json={"name": "../x.jpg"}).status_code == 400
+    assert client.post(f"/api/p/a/files/{b}/rename", json={"name": "c.jpg"}).status_code == 409
+    bad_dir = client.post(f"/api/p/a/files/{b}/move", json={"folder_id": arch, "directory": "../up"})
+    assert bad_dir.status_code == 400
+    nowhere = client.post(
+        f"/api/p/a/files/{b}/move",
+        json={"folder_id": "00000000-0000-4000-8000-000000000000", "directory": ""},
+    )
+    assert nowhere.status_code == 404
+    job = client.post(f"/api/p/a/files/{b}/move", json={"folder_id": arch, "directory": ""})
+    assert job.status_code == 201
+    assert job.json()["params"]["move"] == [{"file_id": b, "folder_id": arch, "directory": ""}]
+    done = wait_for(client, "a", job.json()["id"])
+    assert done["state"] == "done" and done["progress"]["result"]["moved"] == 1
+    assert client.get(f"/api/p/a/files/{b}").json()["folder_name"] == "Arch"
+    renamed = client.post(f"/api/p/a/files/{b}/rename", json={"name": "b2.jpg"})
+    assert renamed.status_code == 201
+    assert wait_for(client, "a", renamed.json()["id"])["progress"]["result"]["renamed"] == 1

@@ -16,7 +16,7 @@ from visualstore.db import fingerprints as fp
 from visualstore.db import folders as folders_db
 from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
-from visualstore.domain.paths import TRASH_DIR
+from visualstore.domain.paths import TRASH_DIR, normalise_relative
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs import results
 from visualstore.jobs.io.scan import _abs
@@ -48,9 +48,13 @@ def _unique(dest: Path) -> Path:
     raise ActionError(f"too many name collisions for {dest}")
 
 
-def move_file(src: Path, dest: Path) -> Path:
-    """Move with collision suffixes; cross-device moves copy, verify the size, then delete."""
-    dest = _unique(dest)
+def move_file(src: Path, dest: Path, *, allow_suffix: bool = True) -> Path:
+    """Move with collision suffixes (or refuse an occupied target when `allow_suffix` is off);
+    cross-device moves copy, verify the size, then delete."""
+    if allow_suffix:
+        dest = _unique(dest)
+    elif dest.exists():
+        raise ActionError("target exists")
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -228,11 +232,55 @@ def _restore_one(conn: sqlite3.Connection, ctx: IoContext, action_id: bytes) -> 
     return None
 
 
+def _relocate(
+    conn: sqlite3.Connection, file_id: bytes, target_folder, directory: str, name: str, kind: str
+) -> str | None:
+    """Move/rename one file: disk first, then the row; never overwrites (design §8.5)."""
+    row = files_db.get_file(conn, file_id)
+    if row is None:
+        return "missing row"
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        return "bad name"
+    try:
+        directory = normalise_relative(directory)
+    except ValueError:
+        return "bad name"
+    source_folder = folders_db.get_folder(conn, bytes(row["folder_id"]))
+    src = Path(source_folder["path"]) / files_db.relative_path(row["directory"], row["name"])
+    if not src.is_file():
+        return "missing file"
+    dest = Path(target_folder["path"]) / files_db.relative_path(directory, name)
+    if dest == src:
+        return None
+    occupied = files_db.find_file(conn, bytes(target_folder["id"]), directory, name)
+    if dest.exists() or (occupied is not None and bytes(occupied["id"]) != file_id):
+        return "exists"
+    move_file(src, dest, allow_suffix=False)
+    before = {
+        "folder_id": id_to_str(bytes(row["folder_id"])),
+        "directory": row["directory"],
+        "name": row["name"],
+        "path": str(src),
+    }
+    after = {
+        "folder_id": id_to_str(bytes(target_folder["id"])),
+        "directory": directory,
+        "name": name,
+        "path": str(dest),
+    }
+    files_db.update_location(conn, file_id, bytes(target_folder["id"]), directory, name)
+    actions_db.record(conn, kind, file_id, before, after)
+    if bytes(target_folder["id"]) != bytes(row["folder_id"]):
+        groups_db.mark_dirty(conn, [file_id])  # the role may differ: preselection changes
+    remove_empty_parents(src.parent, Path(source_folder["path"]))
+    return None
+
+
 def execute_action(
     conn: sqlite3.Connection, vconn: sqlite3.Connection, ctx: IoContext, params: dict, now: datetime
 ) -> dict:
     """The body of apply_action for one params dict; the bulk job calls it per group."""
-    result: dict = {"trashed": 0, "restored": 0, "skipped": []}
+    result: dict = {"trashed": 0, "restored": 0, "moved": 0, "renamed": 0, "skipped": []}
     group_text = params.get("group_id")
     group_id = id_from_str(group_text) if group_text else None
     for text in params.get("trash", []):
@@ -249,6 +297,36 @@ def execute_action(
             result["skipped"].append({"id": text, "reason": reason})
         else:
             result["restored"] += 1
+    for item in params.get("move", []):
+        file_id = id_from_str(item["file_id"])
+        row = files_db.get_file(conn, file_id)
+        target = folders_db.get_folder(conn, id_from_str(item["folder_id"]))
+        if row is None:
+            reason = "missing row"
+        elif target is None:
+            reason = "no such folder"
+        else:
+            reason = _relocate(
+                conn, file_id, target, item.get("directory", ""), row["name"], "move"
+            )
+        if reason:
+            result["skipped"].append({"id": item["file_id"], "reason": reason})
+        else:
+            result["moved"] += 1
+    for item in params.get("rename", []):
+        file_id = id_from_str(item["file_id"])
+        row = files_db.get_file(conn, file_id)
+        if row is None:
+            result["skipped"].append({"id": item["file_id"], "reason": "missing row"})
+            continue
+        target = folders_db.get_folder(conn, bytes(row["folder_id"]))
+        reason = _relocate(conn, file_id, target, row["directory"], item["name"], "rename")
+        if reason:
+            result["skipped"].append({"id": item["file_id"], "reason": reason})
+        else:
+            result["renamed"] += 1
+    if (result["moved"] or result["renamed"]) and not jobs_db.has_active(conn, "regroup"):
+        jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
     if group_id is not None and not result["skipped"]:
         g = groups_db.get_group(conn, group_id)
         if g is not None and g["status"] == "open":

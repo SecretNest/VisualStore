@@ -247,3 +247,84 @@ def test_restored_image_is_fingerprinted_again_so_it_gets_vectors(world):
     assert [e["id"] for e in params["files"]] == [id_to_str(a)]
     assert params["files"][0]["path"] == str(lib / "sub" / "a.jpg")
     assert params["model"]["id"] == settings_db.get(conn, "model.id")
+
+
+def test_rename_and_move_keep_the_row_id_hash_and_pairs(world):
+    """Review Focus 3."""
+    reg, conn, folder, lib, add = world
+    a, b = add("sub/a.jpg", b"aaa"), add("sub/b.jpg", b"bbb")
+    pairs.upsert_vector_pair(conn, a, b, 0.2, "m")
+    result = run_apply_action(
+        ctx_for(reg, {"rename": [{"file_id": id_to_str(a), "name": "renamed.jpg"}]})
+    )
+    assert result["renamed"] == 1 and result["skipped"] == []
+    row = files.get_file(conn, a)
+    assert (
+        row["directory"] == "sub"
+        and row["name"] == "renamed.jpg"
+        and row["sha1"] == hashlib.sha1(b"aaa").digest()
+    )
+    assert (lib / "sub" / "renamed.jpg").exists() and not (lib / "sub" / "a.jpg").exists()
+    assert len(pairs.pairs_of_file(conn, a)) == 1
+    assert any(r["type"] == "rename" for r in conn.execute("SELECT type FROM action"))
+
+    other_root = lib.parent / "arch"
+    other_root.mkdir()
+    arch = folders.create_folder(
+        conn, name="Arch", path=str(other_root), role="archive", compare_scope="all"
+    )
+    result = run_apply_action(
+        ctx_for(
+            reg,
+            {"move": [{"file_id": id_to_str(a), "folder_id": id_to_str(arch), "directory": "x/y"}]},
+        )
+    )
+    assert result["moved"] == 1 and result["skipped"] == []
+    row = files.get_file(conn, a)
+    assert row["folder_id"] == arch and row["directory"] == "x/y" and row["name"] == "renamed.jpg"
+    assert (other_root / "x" / "y" / "renamed.jpg").read_bytes() == b"aaa"
+    assert not (lib / "sub" / "renamed.jpg").exists() and (lib / "sub" / "b.jpg").exists()
+    assert set(groups.pop_dirty(conn)) == {a}  # the role may have changed: regroup
+    assert len(pairs.pairs_of_file(conn, a)) == 1
+
+
+def test_rename_and_move_never_overwrite(world):
+    """Review Focus 3."""
+    reg, conn, folder, lib, add = world
+    a = add("a.jpg", b"aaa")
+    add("b.jpg", b"bbb")
+    result = run_apply_action(
+        ctx_for(reg, {"rename": [{"file_id": id_to_str(a), "name": "b.jpg"}]})
+    )
+    assert result["renamed"] == 0 and result["skipped"] == [
+        {"id": id_to_str(a), "reason": "exists"}
+    ]
+    assert (lib / "a.jpg").read_bytes() == b"aaa" and (lib / "b.jpg").read_bytes() == b"bbb"
+    (lib / "sub" / "a.jpg").write_bytes(b"on disk only")
+    result = run_apply_action(
+        ctx_for(
+            reg,
+            {
+                "move": [
+                    {"file_id": id_to_str(a), "folder_id": id_to_str(folder), "directory": "sub"}
+                ]
+            },
+        )
+    )
+    assert result["skipped"] == [{"id": id_to_str(a), "reason": "exists"}]
+    assert (lib / "a.jpg").read_bytes() == b"aaa"
+    result = run_apply_action(
+        ctx_for(reg, {"rename": [{"file_id": id_to_str(a), "name": "../x.jpg"}]})
+    )
+    assert result["skipped"] == [{"id": id_to_str(a), "reason": "bad name"}]
+    result = run_apply_action(
+        ctx_for(
+            reg,
+            {
+                "move": [
+                    {"file_id": id_to_str(a), "folder_id": id_to_str(b"\x00" * 16), "directory": ""}
+                ]
+            },
+        )
+    )
+    assert result["skipped"] == [{"id": id_to_str(a), "reason": "no such folder"}]

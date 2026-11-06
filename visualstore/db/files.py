@@ -71,6 +71,16 @@ def update_path(conn: sqlite3.Connection, file_id: bytes, directory: str, name: 
         )
 
 
+def update_location(
+    conn: sqlite3.Connection, file_id: bytes, folder_id: bytes, directory: str, name: str
+) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE file SET folder_id = ?, directory = ?, name = ? WHERE id = ?",
+            (folder_id, directory, name, file_id),
+        )
+
+
 def update_stat(conn: sqlite3.Connection, file_id: bytes, size: int, mtime: int) -> None:
     with conn:
         conn.execute("UPDATE file SET size = ?, mtime = ? WHERE id = ?", (size, mtime, file_id))
