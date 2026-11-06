@@ -6,7 +6,7 @@ A plan is written only after its milestone's design is confirmed, and it is revi
 
 | Milestone | Plan | Status |
 |---|---|---|
-| 1 Skeleton | [2026-11-06-m1-skeleton.md](2026-11-06-m1-skeleton.md) | awaiting user review |
+| 1 Skeleton | [2026-11-06-m1-skeleton.md](2026-11-06-m1-skeleton.md) | shipped |
 | 2 Byte-identical pipeline | | |
 | 3 Similarity engine | | |
 | 4 Similarity review | | |

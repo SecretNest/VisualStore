@@ -4,7 +4,9 @@ Self-hosted deduplication for large image, animated-image, and video libraries. 
 
 VisualStore is the successor to [ImageStore](https://github.com/SecretNest/ImageStore), a Windows PowerShell module that found byte-identical files with SHA-1 and visually similar images with pHash. VisualStore keeps ImageStore's domain rules and can import its database, but is a rewrite: cross-platform, browser-operated, and with a similarity engine that treats stills, animated images, and video frames in one vector space.
 
-> **Status: design phase.** The design is complete and confirmed; implementation has not started. See the [roadmap](docs/design/11-roadmap.md) for the milestones and [docs/](docs/README.md) for the full specification.
+> **Status: milestone 1 (skeleton) complete.** The container runs with login, profiles, the job
+> scheduler, scheduled backups and the browser shell. Nothing scans or compares media yet; that is
+> milestones 2 and 3. See the [roadmap](docs/design/11-roadmap.md).
 
 ## What it does
 
@@ -45,6 +47,18 @@ Planned stack: Python 3.12, FastAPI, SQLite (WAL), ONNX Runtime, pyvips, ffmpeg,
 | `VISUALSTORE_PORT` | Listen port, default 8080. |
 
 Everything else is a per-profile setting in the UI. A compose example is in [Operations](docs/design/07-operations.md#94-container-and-compose). Images will be published to `ghcr.io/secretnest/visualstore` and to Alibaba Cloud Container Registry under the same path.
+
+## Running
+
+```bash
+cp .env.example .env            # set VISUALSTORE_PASSWORD
+docker compose -f docker/compose.yaml up -d
+```
+
+Images: `ghcr.io/secretnest/visualstore` and the same path under the Alibaba Cloud registry.
+Development: `uv sync`, `cd web && npm ci && npm run build`, then
+`VISUALSTORE_PASSWORD=pw VISUALSTORE_DATA_DIR=./data VISUALSTORE_BACKUP_DIR=./backups uv run python -m visualstore`.
+Tests: `uv run pytest`, `cd web && npm test`, `cd web && npm run e2e`.
 
 ## Documentation
 
