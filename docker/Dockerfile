@@ -13,7 +13,7 @@ RUN npm run build
 FROM python:3.12-slim-bookworm AS runtime
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libvips42 ffmpeg \
+ && apt-get install -y --no-install-recommends libvips42 ffmpeg util-linux passwd \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
@@ -41,6 +41,7 @@ COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev --no-editable
 
 COPY docker/check-media-support.py ./docker/
+COPY --chmod=755 docker/entrypoint.sh ./docker/
 RUN VISUALSTORE_MODEL_DIR=/app/models /app/.venv/bin/python docker/check-media-support.py
 
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -53,6 +54,8 @@ EXPOSE 8080
 # Liveness: HTTP answers and the scheduler loop has ticked recently (ADR-0008); no curl in slim.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
   CMD python -c "import os, sys, urllib.request; port = os.environ.get('VISUALSTORE_PORT', '8080'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/api/system/health', timeout=4).status == 200 else 1)"
+# Runs as PUID:PGID (default 1000:1000); see docker/entrypoint.sh and ADR-0008.
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
 CMD ["python", "-m", "visualstore"]
 
 # ---- test stage: runtime plus dev dependencies, project installed editable so the source

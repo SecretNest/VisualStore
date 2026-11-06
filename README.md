@@ -65,6 +65,12 @@ on every machine that will host the data directory.
 Images: `ghcr.io/secretnest/visualstore` and the same `secretnest/visualstore` path on Alibaba
 Cloud Container Registry.
 
+**User and permissions.** The container runs as `PUID:PGID` (default 1000:1000), never as
+root. An empty data or backup directory is given to that user on first start; an existing one
+is left alone, so set `PUID`/`PGID` to its owner. A start-up pre-flight refuses to run when either
+directory is not writable and says which one and why; Docker's health check (`/api/system/health`)
+turns unhealthy when the job scheduler stops ticking.
+
 **Models.** The image ships both similarity models in `/app/models` (SSCD ResNet-50, the
 default, and DINOv2 ViT-S/14 for comparison; about 190 MB together). They are fetched from this
 repository's `models-v1` release and verified by sha256 when the image is built, so nothing is
