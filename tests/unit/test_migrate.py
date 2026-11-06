@@ -11,6 +11,7 @@ def test_connect_applies_pragmas(tmp_path):
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+    assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
     assert isinstance(conn.execute("SELECT 1 AS one").fetchone(), sqlite3.Row)
 
 

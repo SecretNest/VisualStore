@@ -22,6 +22,7 @@ from visualstore.db import settings as settings_db
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import HANDLERS as COMPUTE_HANDLERS
 from visualstore.jobs.compute.protocol import ComputeMessage, ComputeRequest
+from visualstore.jobs.results import RESULT_SINKS
 from visualstore.profiles import ProfileNotFound, ProfilePaths, ProfileRegistry
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,12 @@ class IoContext:
     settings: dict
     params: dict
     report: Callable[[dict], None]  # thread-safe; may be called from the handler's thread
+
+    def open_metadata(self) -> sqlite3.Connection:
+        """A connection of the handler's own, for use inside the worker thread. Close it."""
+        from visualstore.db.connection import connect
+
+        return connect(self.paths.metadata_db)
 
 
 IoHandler = Callable[[IoContext], dict]
@@ -172,7 +179,7 @@ class Scheduler:
             if msg.kind == "progress":
                 jobs_db.set_progress(conn, job_id, msg.payload)
             elif msg.kind == "result":
-                self._finish(conn, job_id, msg.payload)
+                self._finish(conn, job_id, msg.payload, profile)
             else:
                 jobs_db.record_failure(conn, job_id, msg.payload.get("error", "unknown error"))
 
@@ -200,11 +207,18 @@ class Scheduler:
                 continue
             jobs_db.record_failure(conn, id_from_str(job_id), f"compute worker died (pid {pid})")
 
-    @staticmethod
-    def _finish(conn: sqlite3.Connection, job_id: bytes, result: dict) -> None:
+    def _finish(self, conn: sqlite3.Connection, job_id: bytes, result: dict, profile: str) -> None:
         row = jobs_db.get(conn, job_id)
         if row is None:
             return
+        sink = RESULT_SINKS.get(row["type"])
+        if sink is not None:
+            try:
+                sink(conn, profile, json.loads(row["params"]), result)
+            except Exception as exc:  # noqa: BLE001 - the attempt failed; compute is idempotent
+                log.exception("result sink for %s failed", row["type"])
+                jobs_db.record_failure(conn, job_id, f"result sink: {type(exc).__name__}: {exc}")
+                return
         progress = json.loads(row["progress"])
         progress["result"] = result
         jobs_db.set_progress(conn, job_id, progress)
@@ -258,7 +272,7 @@ class Scheduler:
                 jobs_db.record_failure(conn, job_id, f"{type(exc).__name__}: {exc}")
             return
         if self.registry.exists(profile):
-            self._finish(conn, job_id, result)
+            self._finish(conn, job_id, result, profile)
 
     # -- planners ----------------------------------------------------------------------
 
