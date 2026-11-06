@@ -1,3 +1,4 @@
+from tests.fixtures.models import install_fake_model
 from tests.integration.conftest import login
 from tests.integration.test_api_profile_scoped import wait_for
 from visualstore.db import files, folders
@@ -18,8 +19,7 @@ def test_models_listing_and_switch_validation(client, config):
         and by_id["sscd-resnet50-512-v1"]["available"] is True  # placeholder from conftest
         and by_id["dinov2-vits14-384-v1"]["available"] is False
     )
-    config.model_dir.mkdir(parents=True, exist_ok=True)
-    (config.model_dir / "dinov2-vits14-384-v1.onnx").write_bytes(b"x")
+    install_fake_model(config.model_dir, "dinov2-vits14-384-v1", dim=384)
     assert {m["id"]: m["available"] for m in client.get("/api/models").json()}[
         "dinov2-vits14-384-v1"
     ] is True

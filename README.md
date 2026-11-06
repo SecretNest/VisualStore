@@ -65,16 +65,17 @@ on every machine that will host the data directory.
 Images: `ghcr.io/secretnest/visualstore` and the same `secretnest/visualstore` path on Alibaba
 Cloud Container Registry.
 
-**Models.** The similarity model (SSCD ResNet-50, about 100 MB as ONNX) is not part of the
-image. The first scan downloads it into `/data/models/` from this repository's `models-v1`
-release and verifies its sha256; a scan that cannot obtain the model fails with a clear message
-and records nothing. Offline installations copy the `.onnx` files into a directory, mount it, and
-set `VISUALSTORE_MODEL_DIR`. A `models.json` in that directory can register custom exports as
-local-only models (see [ADR-0005](docs/decisions/0005-m3-implementation-choices.md)). Switching
-the active model (Jobs → Model) computes the missing vectors and rebuilds the index; judgments
-and groups stay. To evaluate a model against your ImageStore judgments, run Jobs → Evaluation
-with the path of the v1 `.db`; the report lands in `/data/profiles/<profile>/reports/` and is
-linked from the same page.
+**Models.** The image ships both similarity models in `/app/models` (SSCD ResNet-50, the
+default, and DINOv2 ViT-S/14 for comparison; about 190 MB together). They are fetched from this
+repository's `models-v1` release and verified by sha256 when the image is built, so nothing is
+downloaded at run time. Set `VISUALSTORE_MODEL_DIR` only to bring your own exports: that directory
+must then hold every `.onnx` you use, and a `models.json` in it registers custom models as
+local-only entries (see [ADR-0005](docs/decisions/0005-m3-implementation-choices.md)); a built-in
+model missing from it is downloaded from the release on first use and verified. Switching the
+active model (Jobs → Model) computes the missing vectors and rebuilds the index; judgments and
+groups stay. To evaluate a model against your ImageStore judgments, run Jobs → Evaluation with
+the path of the v1 `.db`; the report lands in `/data/profiles/<profile>/reports/` and is linked
+from the same page.
 
 **Behind a reverse proxy.** HTTPS is the proxy's job; VisualStore speaks plain HTTP and its
 session cookie is not marked `Secure`, so terminate TLS in front of it and do not expose port

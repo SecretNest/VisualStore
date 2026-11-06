@@ -216,10 +216,8 @@ def test_fingerprint_jobs_carry_model_and_limits(world):
 
 def test_scan_fails_before_recording_anything_when_the_model_is_unavailable(world):
     reg, conn, folder, lib = world
+    # the fixture registers the model as local-only, so without its file it is not downloadable
     (reg.data_dir / "models" / "sscd-resnet50-512-v1.onnx").unlink()
-    (
-        reg.data_dir / "models" / "models.json"
-    ).unlink()  # built-in entry: no hash yet → not downloadable
     with pytest.raises(ScanError, match="model"):
         run_scan(ctx_for(reg, folder))
     assert rel_paths(conn, folder) == [] and jobs_db.list_jobs(conn) == []

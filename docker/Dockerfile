@@ -25,15 +25,26 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# model artefacts: fetched from the models-v1 release and verified at build time, so the image
+# works without internet access and nothing is downloaded on first use (ADR-0005)
+ADD --chmod=644 --checksum=sha256:d8d800f9b2740eb625757abcdb2ba232399dece87448ed7005a0896d8dde64e0 \
+    https://github.com/SecretNest/VisualStore/releases/download/models-v1/sscd-resnet50-512-v1.onnx \
+    /app/models/sscd-resnet50-512-v1.onnx
+ADD --chmod=644 --checksum=sha256:0dc96e18a60103b7267f45ca39a4828b236cdf64ef0894c0a4532ae86bd7a3d2 \
+    https://github.com/SecretNest/VisualStore/releases/download/models-v1/dinov2-vits14-384-v1.onnx \
+    /app/models/dinov2-vits14-384-v1.onnx
+RUN chmod 755 /app/models
+
 COPY visualstore/ ./visualstore/
 COPY --from=web /src/visualstore/static ./visualstore/static
 COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev --no-editable
 
 COPY docker/check-media-support.py ./docker/
-RUN /app/.venv/bin/python docker/check-media-support.py
+RUN VISUALSTORE_MODEL_DIR=/app/models /app/.venv/bin/python docker/check-media-support.py
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    VISUALSTORE_MODEL_DIR=/app/models \
     VISUALSTORE_DATA_DIR=/data \
     VISUALSTORE_BACKUP_DIR=/backups \
     VISUALSTORE_PORT=8080

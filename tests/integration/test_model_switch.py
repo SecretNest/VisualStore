@@ -3,6 +3,7 @@ import json
 import numpy as np
 import pytest
 
+from tests.fixtures.models import install_fake_model
 from visualstore.db import files, fingerprints, folders, groups, pairs
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
@@ -30,7 +31,7 @@ def world(tmp_path):
     ext = folders.extension_map(conn)
     model_dir = tmp_path / "models"
     model_dir.mkdir()
-    (model_dir / f"{NEW}.onnx").write_bytes(b"pretend")  # local-only: hash unknown, file present
+    install_fake_model(model_dir, NEW, dim=384)  # local-only override: file present, no hash check
 
     def add(name, media="jpg", with_new=False):
         fid = files.insert_file(

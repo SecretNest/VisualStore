@@ -13,7 +13,7 @@ Plans exist at two resolutions:
 |---|---|---|
 | 1 Skeleton | [2026-11-06-m1-skeleton.md](2026-11-06-m1-skeleton.md) | shipped (merged to main 2026-11-06) |
 | 2 Byte-identical pipeline | [2026-11-06-m2-byte-identical.md](2026-11-06-m2-byte-identical.md) | shipped |
-| 3 Similarity engine | [2026-11-06-m3-similarity-engine.md](2026-11-06-m3-similarity-engine.md) | implemented; model artefact release and hash pinning pending |
+| 3 Similarity engine | [2026-11-06-m3-similarity-engine.md](2026-11-06-m3-similarity-engine.md) | shipped |
 | 4 Similarity review | [2026-11-06-m4-similarity-review.md](2026-11-06-m4-similarity-review.md) | task-level |
 | 5 Video and animated images | [2026-11-06-m5-video-animated.md](2026-11-06-m5-video-animated.md) | task-level |
 | 6 Wrap-up | [2026-11-06-m6-wrap-up.md](2026-11-06-m6-wrap-up.md) | task-level |

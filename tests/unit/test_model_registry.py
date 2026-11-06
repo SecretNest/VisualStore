@@ -27,6 +27,7 @@ def test_registry_ships_both_candidates():
     assert {"sscd-resnet50-512-v1", "dinov2-vits14-384-v1"} <= set(reg)
     s = registry.get_spec("sscd-resnet50-512-v1")
     assert s.dim == 512 and s.input_size == 288 and s.url.startswith("https://")
+    assert all(len(m.sha256) == 64 for m in reg.values()), "published models carry a pinned hash"
     with pytest.raises(ModelError):
         registry.get_spec("nope")
 
