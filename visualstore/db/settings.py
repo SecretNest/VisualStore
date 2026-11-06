@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
     "similarity.top_k": 64,
     "media.max_pixels": 80_000_000,
     "bulk.confirm_threshold": 100,
+    "frames.max_per_file": 8,
+    "media.ffmpeg_timeout_s": 120,
 }
 
 _AT_LEAST_ONE = {
@@ -31,6 +33,8 @@ _AT_LEAST_ONE = {
     "trash.retention_days",
     "similarity.top_k",
     "media.max_pixels",
+    "frames.max_per_file",
+    "media.ffmpeg_timeout_s",
 }
 
 

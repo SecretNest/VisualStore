@@ -72,3 +72,14 @@ def test_milestone_3_defaults_and_string_setting(conn):
         settings.set(conn, "model.id", "")
     with pytest.raises(ValueError):
         settings.set(conn, "similarity.top_k", 0)
+
+
+def test_milestone_5_defaults_and_ranges(conn):
+    assert settings.get(conn, "frames.max_per_file") == 8
+    assert settings.get(conn, "media.ffmpeg_timeout_s") == 120
+    with pytest.raises(ValueError):
+        settings.set(conn, "frames.max_per_file", 0)
+    with pytest.raises(ValueError):
+        settings.set(conn, "media.ffmpeg_timeout_s", 0)
+    settings.set(conn, "frames.max_per_file", 3)
+    assert settings.get(conn, "frames.max_per_file") == 3
