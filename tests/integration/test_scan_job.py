@@ -97,7 +97,8 @@ def test_moved_file_keeps_id_sha1_and_pairs(world):
         conn, two["id"], sha1=hashlib.sha1(b"two").digest(), state="fingerprinted"
     )
     pairs.upsert_sha1_pair(conn, one["id"], two["id"])  # pretend they were related
-    conn.execute("DELETE FROM job")  # drop the first scan's fingerprint job; both files are hashed
+    with conn:  # drop the first scan's fingerprint job; both files are hashed already
+        conn.execute("DELETE FROM job")
 
     (lib / "moved").mkdir()
     (lib / "sub" / "one.jpg").rename(lib / "moved" / "renamed.jpg")
