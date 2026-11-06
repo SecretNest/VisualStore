@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
-import { Unauthorized, get, post } from "../api";
+import { Unauthorized, get, post, setUnauthorizedHandler } from "../api";
 import { setLastProfile } from "../lastProfile";
 import type { Profile } from "../types";
 
@@ -30,6 +30,12 @@ export default function Layout() {
   useEffect(() => {
     void reloadProfiles();
   }, [reloadProfiles]);
+
+  useEffect(() => {
+    // Polling pages (groups, jobs) keep fetching after the session expires: send them to login.
+    setUnauthorizedHandler(() => navigate("/login", { replace: true }));
+    return () => setUnauthorizedHandler(null);
+  }, [navigate]);
 
   async function logout() {
     await post("/api/auth/logout");

@@ -43,6 +43,11 @@ def boom(ctx: IoContext) -> dict:
     raise RuntimeError("io exploded")
 
 
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch):
+    monkeypatch.setattr(jobs_db, "RETRY_BACKOFF_S", 0)
+
+
 @pytest.fixture
 def registry(tmp_path):
     reg = ProfileRegistry(tmp_path / "data")

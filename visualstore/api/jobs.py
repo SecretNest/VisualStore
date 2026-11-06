@@ -36,7 +36,10 @@ async def list_jobs(
     state: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
+    if state is not None and state not in jobs_db.STATES:
+        raise HTTPException(status_code=400, detail=f"state must be one of {jobs_db.STATES}")
     conn = get_state(request).registry.conn(name)
+    limit = max(1, min(limit, 500))
     return [jobs_db.to_dict(r) for r in jobs_db.list_jobs(conn, state=state, limit=limit)]
 
 

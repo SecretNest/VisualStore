@@ -20,3 +20,8 @@ The milestone 6 task-level plan listed decisions to take before expansion: index
 
 - `pca.npz` and `index.usearch` are derived data like thumbnails; backups skip them.
 - The measurement script and the performance numbers on the user's library are operator steps; the design records where the numbers go.
+
+## Deferred minors retired
+
+- **Cookie `Secure` flag**: VisualStore speaks plain HTTP behind the operator's TLS-terminating proxy (README "Behind a reverse proxy"); a `Secure` cookie would break the documented deployment. Not changed.
+- **Concurrent-writer backup test**: already covered by `test_backup_taken_during_live_writes_is_complete_and_consistent` since milestone 1. Nothing to add.

@@ -9,7 +9,6 @@ PRIORITY_MAINTENANCE = 0
 KIND_OF: dict[str, str] = {
     "backup": "io",
     "ping": "compute",  # pool round-trip check; used by tests and the system status page
-    "fail": "compute",  # deliberately raises; used by tests
     "fingerprint": "compute",
     "match": "compute",
     "build_index": "compute",

@@ -55,3 +55,12 @@ def test_reset_clears_failures():
     assert not limiter.allowed("c", now=1.0)
     limiter.reset("c")
     assert limiter.allowed("c", now=1.0)
+
+
+def test_rate_limiter_prunes_stale_keys_so_memory_stays_bounded():
+    limiter = LoginRateLimiter(max_failures=5, window_seconds=60)
+    for i in range(1500):
+        limiter.record_failure(f"10.0.{i // 256}.{i % 256}", now=0.0)
+    assert len(limiter._failures) == 1500
+    limiter.record_failure("fresh", now=61.0)  # everything from t=0 is stale now
+    assert set(limiter._failures) == {"fresh"}

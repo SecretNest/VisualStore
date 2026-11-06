@@ -13,6 +13,13 @@ export class Unauthorized extends ApiError {
   }
 }
 
+let onUnauthorized: (() => void) | null = null;
+
+/** Called before any request throws Unauthorized; the layout registers a redirect to /login. */
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 async function detailOf(response: Response): Promise<string | undefined> {
   try {
     const body = (await response.json()) as { detail?: unknown };
@@ -32,7 +39,11 @@ export async function api<T>(
     ...init,
     headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
-  if (response.status === 401) throw new Unauthorized(await detailOf(response));
+  if (response.status === 401) {
+    const detail = await detailOf(response);
+    onUnauthorized?.();
+    throw new Unauthorized(detail);
+  }
   if (!response.ok) {
     throw new ApiError(response.status, (await detailOf(response)) ?? response.statusText);
   }

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 from visualstore.clock import now_iso
 from visualstore.ids import id_to_str, new_id
 
 MAX_ATTEMPTS = 3
+RETRY_BACKOFF_S = 30  # a re-queued attempt waits this × attempts (ADR-0008)
 STATES = ("queued", "running", "done", "failed", "cancelled")
 
 
@@ -55,15 +57,19 @@ def count_by_state(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def next_queued(
-    conn: sqlite3.Connection, kind: str, exclude_types: tuple[str, ...] = ()
+    conn: sqlite3.Connection,
+    kind: str,
+    exclude_types: tuple[str, ...] = (),
+    now: str | None = None,
 ) -> sqlite3.Row | None:
     clause = ""
-    params: list = [kind]
+    params: list = [kind, now or now_iso()]
     if exclude_types:
         clause = f" AND type NOT IN ({','.join('?' * len(exclude_types))})"
         params.extend(exclude_types)
     return conn.execute(
-        f"SELECT * FROM job WHERE state = 'queued' AND kind = ?{clause}"
+        f"SELECT * FROM job WHERE state = 'queued' AND kind = ?"
+        f" AND (not_before IS NULL OR not_before <= ?){clause}"
         " ORDER BY priority DESC, created_at ASC, rowid ASC LIMIT 1",
         params,
     ).fetchone()
@@ -142,16 +148,24 @@ def mark_failed(conn: sqlite3.Connection, job_id: bytes, error: str) -> None:
         )
 
 
-def record_failure(conn: sqlite3.Connection, job_id: bytes, error: str) -> str:
-    """Count one failed attempt. Returns the new state: 'queued' to retry, 'failed' when spent."""
+def record_failure(
+    conn: sqlite3.Connection, job_id: bytes, error: str, backoff: bool = True
+) -> str:
+    """Count one failed attempt. Returns the new state: 'queued' to retry, 'failed' when spent.
+    A retried attempt waits RETRY_BACKOFF_S × attempts unless `backoff` is off."""
     row = get(conn, job_id)
     attempts = int(row["attempts"]) + 1
     state = "queued" if attempts < MAX_ATTEMPTS else "failed"
     finished = None if state == "queued" else now_iso()
+    not_before = None
+    if state == "queued" and backoff and RETRY_BACKOFF_S:
+        delay = timedelta(seconds=RETRY_BACKOFF_S * attempts)
+        not_before = (datetime.now(UTC) + delay).isoformat(timespec="seconds")
     with conn:
         conn.execute(
-            "UPDATE job SET state = ?, attempts = ?, error = ?, finished_at = ? WHERE id = ?",
-            (state, attempts, error, finished, job_id),
+            "UPDATE job SET state = ?, attempts = ?, error = ?, finished_at = ?, not_before = ?"
+            " WHERE id = ?",
+            (state, attempts, error, finished, not_before, job_id),
         )
     return state
 
@@ -160,14 +174,14 @@ def requeue_interrupted(conn: sqlite3.Connection) -> int:
     """At start-up: every job left 'running' by the previous process was interrupted."""
     rows = conn.execute("SELECT id FROM job WHERE state = 'running'").fetchall()
     for row in rows:
-        record_failure(conn, row["id"], "interrupted by restart")
+        record_failure(conn, row["id"], "interrupted by restart", backoff=False)
     return len(rows)
 
 
 def retry(conn: sqlite3.Connection, job_id: bytes) -> bool:
     with conn:
         cur = conn.execute(
-            "UPDATE job SET state = 'queued', attempts = 0, error = NULL,"
+            "UPDATE job SET state = 'queued', attempts = 0, error = NULL, not_before = NULL,"
             " started_at = NULL, finished_at = NULL WHERE id = ? AND state = 'failed'",
             (job_id,),
         )

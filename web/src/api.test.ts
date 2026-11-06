@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, Unauthorized, api } from "./api";
+import { ApiError, Unauthorized, api, setUnauthorizedHandler } from "./api";
 
 function fakeFetch(status: number, body: unknown): typeof fetch {
   return (async () =>
@@ -41,5 +41,17 @@ describe("api", () => {
     await api("/api/x", { method: "POST", body: JSON.stringify({ a: 1 }) }, spy);
     expect(seen?.credentials).toBe("same-origin");
     expect((seen?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+  });
+  it("calls the registered handler before throwing Unauthorized", async () => {
+    let calls = 0;
+    setUnauthorizedHandler(() => {
+      calls += 1;
+    });
+    try {
+      await expect(api("/api/x", {}, fakeFetch(401, undefined))).rejects.toBeInstanceOf(Unauthorized);
+      expect(calls).toBe(1);
+    } finally {
+      setUnauthorizedHandler(null);
+    }
   });
 });

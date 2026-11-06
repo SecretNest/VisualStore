@@ -50,9 +50,15 @@ def test_unknown_job_type_is_400_and_bad_id_is_404(client):
     assert client.get("/api/p/a/jobs/00000000-0000-0000-0000-000000000000").status_code == 404
 
 
-def test_failed_job_can_be_retried_and_queued_job_cancelled(client):
+def test_failed_job_can_be_retried_and_queued_job_cancelled(client, monkeypatch):
+    from visualstore.db import jobs as jobs_db
+
+    monkeypatch.setattr(jobs_db, "RETRY_BACKOFF_S", 0)
     setup_profile(client)
-    job = client.post("/api/p/a/jobs", json={"type": "fail", "params": {"message": "no"}}).json()
+    assert client.post("/api/p/a/jobs", json={"type": "fail"}).status_code == 400  # test-only type
+    conn = client.app.state.vs.registry.conn("a")
+    job_id = jobs_db.enqueue(conn, type="fail", kind="compute", params={"message": "no"})
+    job = jobs_db.to_dict(jobs_db.get(conn, job_id))
     failed = wait_for(client, "a", job["id"])
     assert failed["state"] == "failed" and failed["attempts"] == 3
     assert "RuntimeError: no" in failed["error"]
@@ -125,3 +131,10 @@ def test_changing_an_index_option_queues_a_rebuild(client):
     assert (
         client.put("/api/p/a/settings/index.quantization", json={"value": "f32"}).status_code == 400
     )
+
+
+def test_jobs_listing_validates_state_and_clamps_limit(client):
+    setup_profile(client)
+    assert client.get("/api/p/a/jobs?state=bogus").status_code == 400
+    assert client.get("/api/p/a/jobs?limit=0").status_code == 200
+    assert client.get("/api/p/a/jobs?limit=99999").status_code == 200

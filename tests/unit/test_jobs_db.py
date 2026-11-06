@@ -145,3 +145,29 @@ def test_latest_of_type_returns_newest_or_none(conn):
     new = jobs.enqueue(conn, type="backup", kind="io")
     jobs.enqueue(conn, type="ping", kind="compute")
     assert jobs.latest_of_type(conn, "backup")["id"] == new
+
+
+def test_failed_attempt_backs_off_before_the_next_pick(conn):
+    """ADR-0008 retry backoff: 30 s × attempts, cleared by a manual retry."""
+    from datetime import UTC, datetime, timedelta
+
+    job_id = jobs.enqueue(conn, type="ping", kind="compute")
+    jobs.mark_running(conn, job_id)
+    assert jobs.record_failure(conn, job_id, "boom") == "queued"
+    assert jobs.next_queued(conn, "compute") is None  # not yet
+    later = (datetime.now(UTC) + timedelta(seconds=31)).isoformat()
+    assert jobs.next_queued(conn, "compute", now=later)["id"] == job_id
+    assert jobs.to_dict(jobs.get(conn, job_id))["not_before"] is not None
+    jobs.mark_running(conn, job_id)
+    jobs.record_failure(conn, job_id, "boom")
+    assert jobs.next_queued(conn, "compute", now=later) is None  # 60 s now
+    jobs.mark_running(conn, job_id)
+    assert jobs.record_failure(conn, job_id, "boom") == "failed"
+    assert jobs.retry(conn, job_id) and jobs.next_queued(conn, "compute")["id"] == job_id
+
+
+def test_interrupted_jobs_are_requeued_without_backoff(conn):
+    job_id = jobs.enqueue(conn, type="ping", kind="compute")
+    jobs.mark_running(conn, job_id)
+    assert jobs.requeue_interrupted(conn) == 1
+    assert jobs.next_queued(conn, "compute")["id"] == job_id

@@ -165,3 +165,19 @@ def test_plan_backups_backs_off_after_a_recent_failure(registry, tmp_path):
     two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat(timespec="seconds")
     conn.execute("UPDATE job SET finished_at = ? WHERE id = ?", (two_hours_ago, job_id))
     assert backup.plan_backups(registry, tmp_path / "bk") == 1
+
+
+def test_two_backups_in_the_same_second_get_distinct_names(registry, tmp_path, monkeypatch):
+    frozen = datetime(2026, 11, 7, 12, 0, 0, tzinfo=UTC)
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz else frozen.replace(tzinfo=None)
+
+    monkeypatch.setattr(backup, "datetime", FixedClock)
+    backup.run_backup(make_ctx(registry, tmp_path / "bk", {"targets": ["metadata"]}))
+    backup.run_backup(make_ctx(registry, tmp_path / "bk", {"targets": ["metadata"]}))
+    names = sorted(p.name for p in (tmp_path / "bk" / "a").glob("visualstore-*.db"))
+    assert names == ["visualstore-20261107T120000Z-1.db", "visualstore-20261107T120000Z.db"]
+    assert all(backup.parse_backup_time(tmp_path / "bk" / "a" / n) == frozen for n in names)

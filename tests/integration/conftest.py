@@ -10,6 +10,14 @@ from visualstore.config import Config
 PASSWORD = "pw"
 
 
+@pytest.fixture(autouse=True)
+def no_retry_backoff(monkeypatch):
+    """Integration tests wait for failed jobs; the 30 s × attempts backoff would stall them."""
+    from visualstore.db import jobs as jobs_db
+
+    monkeypatch.setattr(jobs_db, "RETRY_BACKOFF_S", 0)
+
+
 @pytest.fixture
 def config(tmp_path):
     install_fake_model(tmp_path / "models")  # scans need the active model to resolve

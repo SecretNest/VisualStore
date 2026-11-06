@@ -41,11 +41,26 @@ def parse_backup_time(path: Path) -> datetime | None:
     for prefix in PREFIX.values():
         head = f"{prefix}-"
         if stem.startswith(head):
+            stamp = stem[len(head) : -3]
+            stamp = (
+                stamp.rsplit("-", 1)[0] if "-" in stamp else stamp
+            )  # "-1", "-2" collision suffix
             try:
-                return datetime.strptime(stem[len(head) : -3], _STAMP).replace(tzinfo=UTC)
+                return datetime.strptime(stamp, _STAMP).replace(tzinfo=UTC)
             except ValueError:
                 return None
     return None
+
+
+def _unique(dest: Path) -> Path:
+    """Two backups within one second must not overwrite each other."""
+    if not dest.exists():
+        return dest
+    for i in range(1, 1000):
+        candidate = dest.with_name(f"{dest.stem}-{i}{dest.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise BackupError(f"too many backups named {dest.name}")
 
 
 def _target_of(path: Path) -> str | None:
@@ -152,7 +167,7 @@ def run_backup(ctx: IoContext) -> dict:
     total = len(targets) + 1
     written: list[str] = []
     for i, target in enumerate(targets, start=1):
-        dest = dest_dir / backup_file_name(target, now)
+        dest = _unique(dest_dir / backup_file_name(target, now))
         _copy_sqlite(sources[target], dest)
         _prune(dest_dir, target, int(ctx.settings[f"backup.{target}.keep"]))
         written.append(str(dest))

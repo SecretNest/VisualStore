@@ -117,3 +117,24 @@ def test_usage_bytes_counts_files_under_root(registry):
     paths = registry.paths("a")
     (paths.thumbs / "x.webp").write_bytes(b"0" * 1000)
     assert registry.usage_bytes("a") >= 1000
+
+
+def test_failed_profile_creation_leaves_no_row_and_no_directory(registry, monkeypatch):
+    import visualstore.profiles as profiles_module
+
+    def explode(conn, directory):
+        raise RuntimeError("migration exploded")
+
+    monkeypatch.setattr(profiles_module, "migrate", explode)
+    with pytest.raises(RuntimeError):
+        registry.create("broken")
+    assert not registry.exists("broken") and not (registry.profiles_dir / "broken").exists()
+
+
+def test_usage_bytes_is_cached_briefly_and_invalidated_on_delete(registry):
+    registry.create("u")
+    first = registry.usage_bytes("u")
+    (registry.paths("u").root / "extra.bin").write_bytes(b"x" * 4096)
+    assert registry.usage_bytes("u") == first  # cached
+    registry.invalidate_usage("u")
+    assert registry.usage_bytes("u") >= first + 4096

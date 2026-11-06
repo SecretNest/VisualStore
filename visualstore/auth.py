@@ -77,9 +77,14 @@ class LoginRateLimiter:
         now = time.time() if now is None else now
         return len(self._recent(key, now)) < self.max_failures
 
+    PRUNE_ABOVE = 1000  # keys; a scan from many addresses must not grow memory without bound
+
     def record_failure(self, key: str, now: float | None = None) -> None:
         now = time.time() if now is None else now
         self._failures.setdefault(key, []).append(now)
+        if len(self._failures) > self.PRUNE_ABOVE:
+            for stale in list(self._failures):
+                self._recent(stale, now)  # drops keys whose failures all left the window
 
     def reset(self, key: str) -> None:
         self._failures.pop(key, None)

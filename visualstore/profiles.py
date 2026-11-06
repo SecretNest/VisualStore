@@ -10,6 +10,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -74,6 +75,7 @@ class ProfileRegistry:
         self._global: sqlite3.Connection | None = None
         self._metadata: dict[str, sqlite3.Connection] = {}
         self._vectors: dict[str, sqlite3.Connection] = {}
+        self._usage: dict[str, tuple[float, int]] = {}
 
     # -- lifecycle ---------------------------------------------------------------------
 
@@ -168,12 +170,23 @@ class ProfileRegistry:
         except KeyError:
             raise ProfileNotFound(f"profile {name!r} does not exist") from None
 
+    USAGE_TTL_S = 60.0
+
     def usage_bytes(self, name: str) -> int:
-        """Filesystem only, no database access: safe to run in a worker thread."""
+        """Filesystem only, no database access: safe to run in a worker thread. Cached for
+        USAGE_TTL_S: a million thumbnails are not walked on every overview refresh."""
+        cached = self._usage.get(name)
+        if cached and time.monotonic() - cached[0] < self.USAGE_TTL_S:
+            return cached[1]
         root = self.paths(name).root
-        if not root.is_dir():
-            return 0
-        return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+        total = 0
+        if root.is_dir():
+            total = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+        self._usage[name] = (time.monotonic(), total)
+        return total
+
+    def invalidate_usage(self, name: str) -> None:
+        self._usage.pop(name, None)
 
     # -- mutations ---------------------------------------------------------------------
 
@@ -182,6 +195,12 @@ class ProfileRegistry:
         if self.exists(name):
             raise ProfileError(f"profile {name!r} already exists")
         g = self.global_conn()
+        try:
+            self._open_profile(name)  # directories and databases first: no half-open profile
+        except Exception:
+            self._close_profile(name)
+            shutil.rmtree(self.paths(name).root, ignore_errors=True)
+            raise
         order = g.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM profile").fetchone()[0]
         with g:
             g.execute(
@@ -189,7 +208,6 @@ class ProfileRegistry:
                 " VALUES (?, ?, ?, ?)",
                 (name, display_name or name, now_iso(), order),
             )
-        self._open_profile(name)
         return self.get(name)
 
     def rename(self, name: str, display_name: str) -> ProfileInfo:
@@ -206,6 +224,7 @@ class ProfileRegistry:
         if confirm_name != name:
             raise ProfileError("Type the profile name exactly to confirm deletion.")
         self._close_profile(name)
+        self.invalidate_usage(name)
         root = self.paths(name).root
         if root.exists():
             shutil.rmtree(root)
