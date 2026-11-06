@@ -39,6 +39,7 @@ services:
     ports: ["8080:8080"]
     environment:
       VISUALSTORE_PASSWORD: "${VISUALSTORE_PASSWORD}"
+      # PUID / PGID: the user the container runs as (default 1000:1000, ADR-0008)
     volumes:
       - ./data:/data
       - ./backups:/backups

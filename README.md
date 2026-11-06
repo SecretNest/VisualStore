@@ -57,73 +57,23 @@ cp ../.env.example .env          # set VISUALSTORE_PASSWORD in docker/.env
 docker compose up -d             # data in docker/data, backups in docker/backups
 ```
 
-Compose resolves `.env` and the relative volume paths against the directory that holds
-`compose.yaml`, so run it from `docker/` (or copy `compose.yaml` and `.env` to a directory of
-your own). Edit the media volumes in `compose.yaml` first; keep the container-side paths the same
-on every machine that will host the data directory.
+Keep `/data` on a local disk, mount the media at container paths you will keep on every machine,
+and put a TLS-terminating reverse proxy in front. The container runs as `PUID:PGID` (default
+1000:1000) and ships both similarity models; nothing is downloaded at run time.
 
-Images: `ghcr.io/secretnest/visualstore` and the same `secretnest/visualstore` path on Alibaba
-Cloud Container Registry.
+The user guide under [`docs/user/`](docs/user/) covers the rest:
 
-**User and permissions.** The container runs as `PUID:PGID` (default 1000:1000), never as
-root. An empty data or backup directory is given to that user on first start; an existing one
-is left alone, so set `PUID`/`PGID` to its owner. A start-up pre-flight refuses to run when either
-directory is not writable and says which one and why; Docker's health check (`/api/system/health`)
-turns unhealthy when the job scheduler stops ticking.
-
-**Models.** The image ships both similarity models in `/app/models` (SSCD ResNet-50, the
-default, and DINOv2 ViT-S/14 for comparison; about 190 MB together). They are fetched from this
-repository's `models-v1` release and verified by sha256 when the image is built, so nothing is
-downloaded at run time. Set `VISUALSTORE_MODEL_DIR` only to bring your own exports: that directory
-must then hold every `.onnx` you use, and a `models.json` in it registers custom models as
-local-only entries (see [ADR-0005](docs/decisions/0005-m3-implementation-choices.md)); a built-in
-model missing from it is downloaded from the release on first use and verified. Switching the
-active model (Jobs → Model) computes the missing vectors and rebuilds the index; judgments and
-groups stay. To evaluate a model against your ImageStore judgments, run Jobs → Evaluation with
-the path of the v1 `.db`; the report lands in `/data/profiles/<profile>/reports/` and is linked
-from the same page.
-
-**Video and animated images.** Videos and animated images (gif, apng, animated webp) take part
-with sampled frames: up to `frames.max_per_file` (default 8) per file, one frame per second for
-clips up to 8 s and eight spread frames plus the first keyframe for longer ones; animated images
-use every frame up to the cap, then eight spread frames. Every frame costs one vector and one
-index entry (about 1.5 KB in the index including the graph links). A still that is a frame of a
-video lands in the same group as the video. Frames are extracted with the ffmpeg shipped in the
-image, each call bounded by `media.ffmpeg_timeout_s`; a file ffmpeg cannot read is marked
-unreadable, not retried forever. In group detail, a frame strip under the comparison pane shows a
-multi-frame member's frames with their times; clicking one puts that frame into the comparison.
-
-**Reviewing.** The Groups page lists open groups filtered by status, band and Folder. Group
-detail compares the selected member with its nearest neighbour side by side (`s`), as an overlay
-with an opacity slider (`o`) or blinking (`b`); `n`/`p` pick another member to compare with and
-Space swaps the two; `k`/`d` mark keep/delete, `Enter` confirms and moves to the next group, `Esc`
-skips. The file detail page lists candidate pairs beyond the grouping threshold with "related" /
-"unrelated" judgments, and offers move and rename. "Default rules for this filter" on the Groups
-page previews and executes the default resolution for every open group matching the filter in one
-job; when more files than `bulk.confirm_threshold` would be deleted, the count must be typed back.
-
-**Behind a reverse proxy.** HTTPS is the proxy's job; VisualStore speaks plain HTTP and its
-session cookie is not marked `Secure`, so terminate TLS in front of it and do not expose port
-8080 directly. Set `FORWARDED_ALLOW_IPS` to the proxy's address (uvicorn reads it from the
-environment) so that login rate limiting sees each client's own address instead of the proxy's.
-Without it, five wrong passwords from anyone lock everyone out for a minute.
-
-**Restoring a backup.** Backups are plain SQLite files under `/backups/<profile>/`
-(`visualstore-<timestamp>.db` is the metadata database, `vectors-<timestamp>.db` the vectors) and
-`/backups/global.db`. To restore one profile:
-
-1. Stop the container.
-2. Copy the chosen `visualstore-<timestamp>.db` over `/data/profiles/<profile>/visualstore.db`,
-   and, if needed, `vectors-<timestamp>.db` over `vectors.db` in the same directory.
-3. Start the container. The search index and thumbnails are derived data and are rebuilt when
-   they no longer match the restored databases. Other profiles are unaffected.
-
-Moving the whole installation to another machine is not a restore: stop the container and copy
-the entire `/data` directory as-is (see [Operations](docs/design/07-operations.md#91-backup)).
+- [Deployment](docs/user/deployment.md): image, compose, environment, permissions, proxy, health.
+- [Initialise and migrate](docs/user/initialise-and-migrate.md): first computation on a strong machine, stop-and-copy to the NAS.
+- [Backups and restore](docs/user/restore.md).
+- [Import from ImageStore](docs/user/import-from-imagestore.md), including the model evaluation report.
+- [Review workflow](docs/user/review-workflow.md): queue, three-keystroke group detail, frame strip, candidates, bulk rules, trash.
+- [Settings](docs/user/settings.md): every key, index memory options, sizing the compute pool.
 
 Development: `uv sync`, `cd web && npm ci && npm run build`, then
 `VISUALSTORE_PASSWORD=pw VISUALSTORE_DATA_DIR=./data VISUALSTORE_BACKUP_DIR=./backups uv run python -m visualstore`.
-Tests: `uv run pytest`, `cd web && npm test`, `cd web && npm run e2e`.
+Tests: `uv run pytest`, `cd web && npm test`, `cd web && npm run e2e` (media tests need libvips and
+ffmpeg; without them locally they run in the `visualstore:test` image, see `docker/Dockerfile`).
 
 ## Documentation
 

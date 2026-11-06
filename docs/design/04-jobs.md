@@ -17,15 +17,18 @@ On container restart every `running` job returns to `queued` with `attempts` inc
 | `scan` | io | Scan one or all Folders, see [05 §7.1](05-pipeline.md#71-scan). |
 | `fingerprint` | compute | SHA-1, thumbnail, and vectors for a batch of files (default 64). Result per file: sha1, state, frame-vector array, thumbnail bytes. |
 | `match` | compute | Add a batch of new vectors to the index and query neighbours; returns candidate Pairs (see [05 §7.4](05-pipeline.md#74-match)). |
-| `rebuild_index` | compute | Rebuild the index in full from `vectors.db`. Used after a model change or index corruption. |
+| `rebuild_index` | io | Export the live vectors of `vectors.db` (fitting the PCA projection when enabled) and queue `build_index`. Used after a model change, an index option change, a restore, or index corruption. |
+| `build_index` | compute | Build a fresh index file from the exported vectors and replace the profile's; its sink matches whatever was fingerprinted meanwhile. |
+| `model_switch` | io | Change the active model: cancel queued jobs of the old one, queue vectors for files lacking them, rebuild the index. |
+| `bulk_resolve` | io | Apply the default rules to the groups a bulk preview planned, re-validating each group, trashing inline. |
 | `regroup` | io | Incrementally recompute affected connected components. |
 | `apply_action` | io | Trash / move / rename / restore for a batch of files. |
 | `archive_move` | io | Move all (or selected directories) of an inbox Folder into a target archive Folder, see [06 §8.5](06-review-ui.md#85-actions-and-trash). |
 | `backup` | io | See [07 §9.1](07-operations.md#91-backup). |
 | `purge_trash` | io | Remove trashed files past the retention period. |
 | `import_v1` | io | See [08 v1 Import](08-v1-import.md). |
-| `eval` | compute | Open a v1 database read-only and evaluate models / thresholds against its human judgments, see [05 §7.6](05-pipeline.md#76-model-and-thresholds). |
-| `maintenance` | io | VACUUM, ANALYZE, orphan thumbnail cleanup. |
+| `eval` | io | Open a v1 database read-only and evaluate models / thresholds against its human judgments, see [05 §7.6](05-pipeline.md#76-model-and-thresholds). |
+| `maintenance` | io | Weekly: orphan thumbnails / previews / frame images, frame rows of unknown files, ANALYZE, VACUUM above a free-page ratio. |
 
 ## 6.3 Priority
 

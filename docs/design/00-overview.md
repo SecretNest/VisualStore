@@ -54,7 +54,7 @@ VisualStore is a rewrite, not a migration: it keeps v1's domain rules and data a
 
 ### 1.3 Acceptance criteria
 
-- At the one-million-file scale, the routine incremental workflow (a few thousand new files) finishes overnight on the NAS and the UI stays responsive.
+- At the one-million-file scale, the routine incremental workflow (a few thousand new files) finishes overnight on the NAS and the UI stays responsive. The timing is measured on the user's installation (Jobs page throughput, `scripts/measure_index.py` for index memory) and recorded here once the first overnight run on the NAS has happened.
 - Evaluated against the human judgments imported from v1, the new algorithm's recall on "confirmed related" samples is not below pHash, and its false-positive rate on "confirmed unrelated" samples is substantially below pHash. Concrete numbers are written back here once the evaluation in [05 §7.6](05-pipeline.md#76-model-and-thresholds) establishes the baseline. Measured values are produced by the evaluation job (Jobs → Evaluation) on the user's imported v1 data; the report path is recorded here when the run has been done.
 - Byte-identical groups need no human intervention by default.
 - Resolving one similarity group by hand takes at most three keystrokes (look, choose what to keep, confirm).

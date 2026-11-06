@@ -6,7 +6,7 @@ Guidance for agent sessions working in this repository.
 
 VisualStore: self-hosted deduplication for image, animated-image, and video libraries. Single Docker container, FastAPI backend with a compute process pool, React frontend, SQLite plus a usearch vector index. Successor to the ImageStore PowerShell module (`../ImageStore/`, referred to as v1).
 
-Status: milestones 1 to 5 shipped (skeleton; byte-identical pipeline; similarity engine with the models shipped inside the image; similarity review with comparison pane, candidates, bulk rules, move/rename; video and animated images with sampled frames and a frame strip). Milestone 6 (wrap-up) is next; its task-level plan is in `docs/plans/` and must be expanded to executable resolution before execution. Thresholds are provisional until the evaluation job has been run on the user's library. The design is the contract; read it before proposing anything.
+Status: all six milestones shipped (skeleton; byte-identical pipeline; similarity engine with the models inside the image; similarity review; video and animated images; wrap-up with index options, maintenance, non-root image, health check, rehearsals and the user guide under `docs/user/`). Remaining work is the optional §15 follow-up in the roadmap and the operator's measurements on real data (evaluation report, index memory, overnight incremental), which go into design §1.3. Thresholds are provisional until the evaluation job has been run on the user's library. The design is the contract; read it before proposing anything.
 
 ## Documentation rules
 

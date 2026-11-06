@@ -11,6 +11,8 @@ Every milestone ends in a running version. Each one gets its own implementation 
 5. **Video and animated images**: frame sampling, multi-frame index, frame strip in group detail.
 6. **Wrap-up**: performance tuning (index quantisation, PCA option), maintenance job, user documentation (including initialisation and migration), migration and restore rehearsal.
 
+All six milestones shipped between 2026-11-06 and 2026-11-07; the plans under `docs/plans/` are frozen and the implementation choices are in ADR-0003 to ADR-0008.
+
 ## 14. Risks and open verification
 
 | Risk | Response |

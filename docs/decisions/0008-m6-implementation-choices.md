@@ -25,3 +25,12 @@ The milestone 6 task-level plan listed decisions to take before expansion: index
 
 - **Cookie `Secure` flag**: VisualStore speaks plain HTTP behind the operator's TLS-terminating proxy (README "Behind a reverse proxy"); a `Secure` cookie would break the documented deployment. Not changed.
 - **Concurrent-writer backup test**: already covered by `test_backup_taken_during_live_writes_is_complete_and_consistent` since milestone 1. Nothing to add.
+
+## Facts learned while shipping
+
+- usearch reports the scalar kind in `Index.metadata()["kind_scalar"]` as a `ScalarKind` enum; `inspect()` maps it to the setting names (`f16`, `i8`).
+- The design's job table listed `rebuild_index` and `eval` as compute jobs; both are io jobs (the rebuild exports and queues the compute `build_index`), and `build_index`, `model_switch` and `bulk_resolve` were missing. The table was corrected in place.
+- `ffprobe` has no `-nostdin`; the e2e job on GitHub runners needs `libvips42` and `ffmpeg` from apt and Chromium from `playwright install --with-deps`.
+- A restored metadata database still contains the job rows of its time; the restore rehearsal therefore distinguishes jobs created after the restore by id.
+- The retry backoff would stall tests that wait for a third failed attempt; the integration and scheduler test suites zero `RETRY_BACKOFF_S` through an autouse fixture.
+- Performance numbers for the one-million-file acceptance criterion cannot be produced in this repository; the user guide explains how to size the pool and where the numbers are recorded (design §1.3).

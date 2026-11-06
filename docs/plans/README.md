@@ -16,4 +16,4 @@ Plans exist at two resolutions:
 | 3 Similarity engine | [2026-11-06-m3-similarity-engine.md](2026-11-06-m3-similarity-engine.md) | shipped |
 | 4 Similarity review | [2026-11-06-m4-similarity-review.md](2026-11-06-m4-similarity-review.md) | shipped |
 | 5 Video and animated images | [2026-11-06-m5-video-animated.md](2026-11-06-m5-video-animated.md) | shipped |
-| 6 Wrap-up | [2026-11-06-m6-wrap-up.md](2026-11-06-m6-wrap-up.md) | executable (expanded 2026-11-07) |
+| 6 Wrap-up | [2026-11-06-m6-wrap-up.md](2026-11-06-m6-wrap-up.md) | shipped |

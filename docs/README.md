@@ -7,7 +7,7 @@ This directory is the single documentation tree of the project. Nothing about th
 | [`design/`](design/) | The design specification, split into numbered chapters. The single source of truth for what is being built and why. | When a design decision changes. Update the chapter; record the reason as an ADR. |
 | [`decisions/`](decisions/) | Architecture Decision Records: short notes on decisions whose rationale is not obvious from the design itself. | Append-only. Superseded decisions are marked, not deleted. |
 | [`plans/`](plans/) | Implementation plans, one per milestone, written before coding that milestone starts. | One new file per milestone; a plan is frozen once its milestone ships. |
-| `user/` | End-user documentation: deployment, initialisation and migration, restore, v1 import, review workflow. Created in milestone 6 of the [roadmap](design/11-roadmap.md). | Not yet present. |
+| [`user/`](user/) | End-user documentation: [deployment](user/deployment.md), [initialise and migrate](user/initialise-and-migrate.md), [restore](user/restore.md), [import from ImageStore](user/import-from-imagestore.md), [review workflow](user/review-workflow.md), [settings](user/settings.md). | When shipped behaviour changes. |
 
 ## Reading order for the design
 

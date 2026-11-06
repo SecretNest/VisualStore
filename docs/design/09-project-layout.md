@@ -11,7 +11,9 @@ visualstore/                   Python package
     scheduler.py               polls every profile queue, dispatches io / compute jobs
     io/                        scan, actions, regroup, backup, purge, import_v1, maintenance
     compute/                   child-process entry point; fingerprint, match, eval
-  media/                       decoding, frame sampling, thumbnails (called by compute, testable alone)
+  media/                       decoding, frame sampling, video/animated frames, thumbnails (called by compute, testable alone)
+  index/                       usearch wrapper and the optional per-profile PCA projection
+  preflight.py                 start-up check that the data and backup directories are writable
   models/                      ONNX loading and preprocessing
   static/                      frontend build output
 web/                           React frontend source
