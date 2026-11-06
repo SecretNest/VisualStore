@@ -5,6 +5,7 @@ from visualstore.jobs.io.archive_move import run_archive_move
 from visualstore.jobs.io.backup import run_backup
 from visualstore.jobs.io.eval import run_eval
 from visualstore.jobs.io.import_v1 import run_import_v1
+from visualstore.jobs.io.model_switch import run_model_switch
 from visualstore.jobs.io.rebuild import run_rebuild_index
 from visualstore.jobs.io.regroup import run_regroup
 from visualstore.jobs.io.scan import run_scan
@@ -20,4 +21,5 @@ IO_HANDLERS: dict[str, IoHandler] = {
     "import_v1": run_import_v1,
     "rebuild_index": run_rebuild_index,
     "eval": run_eval,
+    "model_switch": run_model_switch,
 }
