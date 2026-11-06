@@ -104,7 +104,8 @@ def test_eval_separates_positives_from_negatives_and_writes_reports(world):
         ctx_for(reg, {"db_path": str(tmp_path / "v1.db"), "negatives": 200, "seed": 1})
     )
     assert (
-        result["positives"] == 60
+        result["positives"] == 50
+        and result["positives_identical"] == 10
         and result["negatives_labelled"] == 30
         and result["negatives_random"] == 200
     )
@@ -119,6 +120,7 @@ def test_eval_separates_positives_from_negatives_and_writes_reports(world):
     assert len(list(reports.glob("eval-*.json"))) == 1 and len(list(reports.glob("eval-*.md"))) == 1
     data = json.loads(next(reports.glob("eval-*.json")).read_text())
     assert data["model_id"] == MODEL and data["bands_current"]["positives"]["near_duplicate"] > 0.9
+    assert data["distances"]["positives_identical"]["count"] == 10
     assert conn.execute("SELECT COUNT(*) FROM pair").fetchone()[0] == before  # nothing written
     assert IO_HANDLERS["eval"] is run_eval
 
@@ -129,8 +131,7 @@ def test_eval_refuses_without_enough_labelled_positives(world):
     v1.execute("DELETE FROM SimilarFile WHERE IgnoredMode = 1")
     v1.commit()
     v1.close()
-    with conn:
-        conn.execute("UPDATE file SET sha1 = randomblob(20)")  # no byte-identical pairs either
+    # byte-identical pairs still exist but do not count as labelled positives
     with pytest.raises(EvalError, match="positive"):
         run_eval(ctx_for(reg, {"db_path": str(tmp_path / "v1.db"), "negatives": 10}))
     with pytest.raises(EvalError):

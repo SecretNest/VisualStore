@@ -31,12 +31,12 @@ def _same_sha1(conn: sqlite3.Connection, ids: set[bytes]) -> set[bytes]:
     return {bytes(r["id"]) for r in rows}
 
 
-def _closure(conn: sqlite3.Connection, seeds: list[bytes]) -> set[bytes]:
+def _closure(conn: sqlite3.Connection, seeds: list[bytes], model_id: str | None) -> set[bytes]:
     """Seeds plus everything reachable through pairs, shared group membership or equal sha1."""
     scope: set[bytes] = set(seeds)
     frontier: set[bytes] = set(seeds)
     while frontier:
-        edges = pairs_db.edges_touching(conn, frontier)
+        edges = pairs_db.edges_touching(conn, frontier, model_id)
         reached = {bytes(e["file_a"]) for e in edges} | {bytes(e["file_b"]) for e in edges}
         group_ids = {
             bytes(g["id"]) for f in frontier if (g := groups_db.group_of_file(conn, f)) is not None
@@ -103,13 +103,14 @@ def _existing_group(conn: sqlite3.Connection, comp: Component):
 def run_regroup(ctx: IoContext) -> dict:
     group_distance = float(ctx.settings.get("grouping.group_distance", 0.2))
     auto_setting = bool(ctx.settings.get("resolution.auto_execute_identical", True))
+    model_id = ctx.settings.get("model.id")
     stats = {"components": 0, "groups": 0, "auto_executed": 0}
     with closing(ctx.open_metadata()) as conn:
         while True:
             seeds = groups_db.pop_dirty(conn, BATCH)
             if not seeds:
                 break
-            scope = _closure(conn, seeds)
+            scope = _closure(conn, seeds, model_id)
             _rehub_identical(conn, scope)
             edges = [
                 PairEdge(
@@ -119,7 +120,7 @@ def run_regroup(ctx: IoContext) -> dict:
                     r["source"],
                     r["judgment"],
                 )
-                for r in pairs_db.edges_touching(conn, scope)
+                for r in pairs_db.edges_touching(conn, scope, model_id)
             ]
             comps = components(scope, edges, group_distance)
             stats["components"] += len(comps)

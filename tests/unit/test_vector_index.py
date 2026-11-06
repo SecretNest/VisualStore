@@ -48,3 +48,13 @@ def test_corrupt_file_is_an_index_error(tmp_path):
 
 def test_search_on_empty_index_returns_nothing():
     assert VectorIndex.empty(4).search(unit([1, 0, 0, 0]), 5) == []
+
+
+def test_add_replaces_the_vector_of_a_key_that_is_already_present():
+    """Re-fingerprinting a changed file reuses its key; usearch refuses duplicate keys."""
+    idx = VectorIndex.empty(4)
+    idx.add([7], unit([[1, 0, 0, 0]]).reshape(1, 4))
+    idx.add([7], unit([[0, 1, 0, 0]]).reshape(1, 4))
+    assert idx.count == 1
+    [(key, distance)] = idx.search(unit([0, 1, 0, 0]), 1)
+    assert key == 7 and distance < 1e-3

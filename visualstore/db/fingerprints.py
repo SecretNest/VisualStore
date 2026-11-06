@@ -110,10 +110,10 @@ def set_meta(vconn: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def iter_vectors(
-    vconn: sqlite3.Connection, model_id: str, batch: int = 4096
+    vconn: sqlite3.Connection, model_id: str, batch: int = 4096, after: int = -1
 ) -> Iterator[list[sqlite3.Row]]:
-    """Live (key, vector) rows for one model, in key order, for building the index."""
-    last = -1
+    """Live (key, vector) rows for one model with seq > `after`, in key order."""
+    last = after
     while True:
         rows = vconn.execute(
             "SELECT k.seq, k.file_id, k.frame_index, f.vector FROM index_key k"

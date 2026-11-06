@@ -63,6 +63,52 @@ def link_identical(conn: sqlite3.Connection, file_id: bytes, sha1: bytes) -> boo
     return True
 
 
+MATCH_BATCH = 64
+
+
+def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, priority: int) -> int:
+    """Queue one `match` job per MATCH_BATCH entries ({"seq", "vector"}); returns the job count."""
+    from visualstore.db import fingerprints as fp
+    from visualstore.db import jobs as jobs_db
+
+    entries = list(entries)
+    made = 0
+    for start in range(0, len(entries), MATCH_BATCH):
+        jobs_db.enqueue(
+            conn,
+            type="match",
+            kind="compute",
+            priority=priority,
+            params={
+                "model": model,
+                "index_path": str(paths.index),
+                "entries": entries[start : start + MATCH_BATCH],
+                "remove": fp.pending_removals(vconn, model["id"]) if start == 0 else [],
+                "top_k": int(settings["similarity.top_k"]),
+                "candidate_distance": float(settings["similarity.candidate_distance"]),
+                "priority": priority,
+            },
+        )
+        made += 1
+    return made
+
+
+def match_unindexed(conn, vconn, settings: dict, paths, model_dir, after_seq: int, priority) -> int:
+    """Queue `match` jobs for every live key above `after_seq`: vectors that were written while an
+    index was being rebuilt are not in the snapshot the build used (Review Focus 1)."""
+    from visualstore.db import fingerprints as fp
+    from visualstore.models.registry import get_spec, job_params
+
+    spec = get_spec(settings["model.id"], model_dir)
+    model = job_params(spec, model_dir)
+    entries = [
+        {"seq": r["seq"], "vector": base64.b64encode(bytes(r["vector"])).decode()}
+        for rows in fp.iter_vectors(vconn, spec.id, after=after_seq)
+        for r in rows
+    ]
+    return enqueue_match(conn, vconn, settings, paths, model, entries, priority)
+
+
 def sink_fingerprint(ctx: SinkContext) -> None:
     from visualstore.db import files as files_db
     from visualstore.db import fingerprints as fp
@@ -72,6 +118,10 @@ def sink_fingerprint(ctx: SinkContext) -> None:
 
     conn, vconn = ctx.conn, ctx.vconn
     model = ctx.params.get("model")
+    # Vectors of a model that is no longer active (job queued before a switch) are discarded;
+    # the hash and the thumbnail are still valid (design §7.7).
+    if model and model.get("id") != ctx.settings.get("model.id"):
+        model = None
     priority = int(ctx.params.get("priority", PRIORITY_INBOX))
     dirty = False
     entries_for_match: list[dict] = []
@@ -108,26 +158,13 @@ def sink_fingerprint(ctx: SinkContext) -> None:
     if entries_for_match and model:
         index_ok = ctx.paths.index.is_file() and fp.get_meta(vconn, "model_id") == model["id"]
         if index_ok:
-            jobs_db.enqueue(
-                conn,
-                type="match",
-                kind="compute",
-                priority=priority,
-                params={
-                    "model": model,
-                    "index_path": str(ctx.paths.index),
-                    "entries": entries_for_match,
-                    "remove": fp.pending_removals(vconn, model["id"]),
-                    "top_k": int(ctx.settings["similarity.top_k"]),
-                    "candidate_distance": float(ctx.settings["similarity.candidate_distance"]),
-                    "priority": priority,
-                },
-            )
+            enqueue_match(conn, vconn, ctx.settings, ctx.paths, model, entries_for_match, priority)
         elif not (
             jobs_db.has_active(conn, "rebuild_index") or jobs_db.has_active(conn, "build_index")
         ):
             # No usable index yet (or built for another model): rebuild from vectors.db, which
-            # now includes the vectors just written (design §7.4, Review Focus 1).
+            # now includes the vectors just written (design §7.4, Review Focus 1). While a
+            # rebuild is active, nothing is queued: sink_build_index matches what arrived late.
             jobs_db.enqueue(conn, type="rebuild_index", kind="io", priority=priority)
     if dirty and not jobs_db.has_active(conn, "regroup"):
         jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
@@ -146,6 +183,8 @@ def sink_match(ctx: SinkContext) -> None:
 
     conn, vconn = ctx.conn, ctx.vconn
     model = ctx.params["model"]
+    if model["id"] != ctx.settings.get("model.id"):
+        return  # queued before a model switch: distances of two models are never mixed
     hits = ctx.result.get("hits", [])
     seqs = {int(h[0]) for h in hits} | {int(h[1]) for h in hits}
     owner = fp.resolve_keys(vconn, seqs)
@@ -195,10 +234,22 @@ RESULT_SINKS["match"] = sink_match
 def sink_build_index(ctx: SinkContext) -> None:
     from visualstore.clock import now_iso
     from visualstore.db import fingerprints as fp
+    from visualstore.jobs.types import PRIORITY_INBOX
 
     fp.set_meta(ctx.vconn, "model_id", ctx.result["model_id"])
     fp.set_meta(ctx.vconn, "dim", str(ctx.result["dim"]))
     fp.set_meta(ctx.vconn, "built_at", now_iso())
+    if ctx.result["model_id"] != ctx.settings.get("model.id"):
+        return  # the model changed again meanwhile; the switch queued its own rebuild
+    match_unindexed(
+        ctx.conn,
+        ctx.vconn,
+        ctx.settings,
+        ctx.paths,
+        ctx.model_dir,
+        int(ctx.params.get("max_seq", -1)),
+        int(ctx.params.get("priority", PRIORITY_INBOX)),
+    )
 
 
 RESULT_SINKS["build_index"] = sink_build_index

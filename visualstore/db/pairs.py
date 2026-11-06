@@ -56,14 +56,21 @@ def set_judgment(conn: sqlite3.Connection, a: bytes, b: bytes, judgment: str, or
     return cur.rowcount == 1
 
 
-def edges_touching(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> list[sqlite3.Row]:
+def edges_touching(
+    conn: sqlite3.Connection, file_ids: Iterable[bytes], model_id: str | None = None
+) -> list[sqlite3.Row]:
+    """Pairs touching the files. With `model_id`, vector pairs of other models are left out:
+    distances of two models are never grouped together (design §7.7)."""
     ids = list(file_ids)
     if not ids:
         return []
     marks = ",".join("?" * len(ids))
-    return conn.execute(
-        f"SELECT * FROM pair WHERE file_a IN ({marks}) OR file_b IN ({marks})", (*ids, *ids)
-    ).fetchall()
+    sql = f"SELECT * FROM pair WHERE (file_a IN ({marks}) OR file_b IN ({marks}))"
+    args: list = [*ids, *ids]
+    if model_id is not None:
+        sql += " AND (source != 'vector' OR model_id = ?)"
+        args.append(model_id)
+    return conn.execute(sql, args).fetchall()
 
 
 def pairs_of_file(conn: sqlite3.Connection, file_id: bytes) -> list[sqlite3.Row]:

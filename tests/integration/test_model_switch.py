@@ -107,3 +107,29 @@ def test_unknown_or_unavailable_model_changes_nothing(world):
         run_model_switch(ctx_for(reg, model_dir, {"model_id": NEW}))
     assert settings_db.get(conn, "model.id") == OLD
     assert jobs_db.list_jobs(conn) == []
+
+
+def test_switch_cancels_queued_jobs_of_the_old_model(world):
+    """Final review, Important 3."""
+    reg, conn, vconn, model_dir, add = world
+    add("a.jpg")
+    old_fp = jobs_db.enqueue(
+        conn,
+        type="fingerprint",
+        kind="compute",
+        priority=50,
+        params={"files": [], "model": {"id": OLD}},
+    )
+    old_match = jobs_db.enqueue(
+        conn,
+        type="match",
+        kind="compute",
+        priority=50,
+        params={"model": {"id": OLD}, "entries": []},
+    )
+    unrelated = jobs_db.enqueue(conn, type="backup", kind="io", priority=50)
+    result = run_model_switch(ctx_for(reg, model_dir, {"model_id": NEW}))
+    assert result["cancelled_jobs"] == 2
+    assert jobs_db.get(conn, old_fp)["state"] == "cancelled"
+    assert jobs_db.get(conn, old_match)["state"] == "cancelled"
+    assert jobs_db.get(conn, unrelated)["state"] == "queued"

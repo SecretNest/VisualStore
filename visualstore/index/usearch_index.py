@@ -64,6 +64,10 @@ class VectorIndex:
         if len(keys) == 0:
             return
         arr = np.ascontiguousarray(vectors, dtype=np.float32).reshape(len(keys), self.dim)
+        # A re-fingerprinted file keeps its key; usearch refuses duplicate keys, so replace.
+        present = [k for k in keys if k in self._index]
+        if present:
+            self._index.remove(np.asarray(present, dtype=np.uint64))
         self._index.add(np.asarray(keys, dtype=np.uint64), arr, copy=True)
 
     def remove(self, keys: Sequence[int]) -> int:

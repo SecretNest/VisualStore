@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -6,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from visualstore.db import actions, files, folders, groups, pairs
+from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.db.groups import NewGroup
 from visualstore.ids import id_to_str
@@ -230,3 +232,18 @@ def test_trash_skips_files_changed_on_disk_or_no_longer_marked_delete(world):
     result = run_apply_action(ctx_for(reg, {"group_id": id_to_str(gid2), "trash": [id_to_str(d)]}))
     assert result["trashed"] == 0 and result["skipped"][0]["reason"] == "decision changed"
     assert (lib / "d.jpg").exists()
+
+
+def test_restored_image_is_fingerprinted_again_so_it_gets_vectors(world):
+    """Final review, Important 4: trashing drops the vectors; restoring must bring them back."""
+    reg, conn, folder, lib, add = world
+    a = add("sub/a.jpg", b"aaa")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(a)]}))
+    [act] = actions.list_trash(conn)
+    run_apply_action(ctx_for(reg, {"restore": [id_to_str(act["id"])]}))
+    queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
+    assert len(queued) == 1
+    params = json.loads(queued[0]["params"])
+    assert [e["id"] for e in params["files"]] == [id_to_str(a)]
+    assert params["files"][0]["path"] == str(lib / "sub" / "a.jpg")
+    assert params["model"]["id"] == settings_db.get(conn, "model.id")

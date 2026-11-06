@@ -13,7 +13,7 @@ from visualstore.ids import id_to_str
 from visualstore.index.usearch_index import VectorIndex, inspect
 from visualstore.jobs.compute.handlers import build_index
 from visualstore.jobs.io.rebuild import run_rebuild_index
-from visualstore.jobs.results import sink_build_index, sink_fingerprint
+from visualstore.jobs.results import sink_build_index, sink_fingerprint, sink_match
 from visualstore.jobs.scheduler import IoContext, Scheduler
 from visualstore.jobs.startup import check_indexes
 from visualstore.profiles import ProfileRegistry
@@ -82,7 +82,7 @@ def test_rebuild_exports_then_build_writes_index_and_meta(world):
 def test_rebuild_with_no_vectors_writes_an_empty_index(world):
     reg = world
     result = run_rebuild_index(ctx_for(reg))
-    assert result == {"exported": 0, "built": True}
+    assert result == {"exported": 0, "built": True, "match_jobs": 0}
     assert inspect(reg.paths("a").index) == {"dimensions": 512, "count": 0}
     assert jobs_db.list_jobs(reg.conn("a"), state="queued") == []
 
@@ -172,3 +172,65 @@ async def test_scheduler_runs_one_exclusive_compute_job_per_profile(tmp_path):
     assert ("b", "build_index") in submitted
     assert len(submitted) == 3  # the second match for a waits
     reg.close()
+
+
+def test_vectors_written_during_a_rebuild_are_matched_afterwards(world):
+    """Final review, Critical 2: batches landing between the export and the build must not be
+    silently left out of the index."""
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    seed_vectors(reg, 3)
+    run_rebuild_index(ctx_for(reg))
+    [job] = jobs_db.list_jobs(conn, state="queued")
+    params = json.loads(job["params"])
+    assert job["type"] == "build_index" and params["max_seq"] == 3
+    [fourth] = seed_vectors(reg, 4)[3:]  # fingerprinted while the child builds the index
+    late_keys = [
+        r["seq"] for r in vconn.execute("SELECT seq FROM index_key WHERE seq > 3 AND deleted = 0")
+    ]
+    assert fingerprints.resolve_keys(vconn, late_keys) == {late_keys[0]: (fourth, 0)}
+    result = build_index(params, lambda p: None)
+    jobs_db.mark_done(conn, bytes(job["id"]))
+    sink_build_index(make_sink_ctx(reg, "a", params, result))
+    queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]
+    assert len(queued) == 1
+    match_params = json.loads(queued[0]["params"])
+    assert [e["seq"] for e in match_params["entries"]] == late_keys
+    assert match_params["model"]["id"] == MODEL and match_params["index_path"] == str(
+        reg.paths("a").index
+    )
+    assert fingerprints.get_meta(vconn, "model_id") == MODEL
+
+
+def test_sinks_ignore_results_computed_with_a_model_that_is_no_longer_active(world):
+    """Final review, Important 3: a job queued before a model switch must not feed the new index."""
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    folder = folders.create_folder(
+        conn, name="L", path=str(reg.data_dir), role="inbox", compare_scope="all"
+    )
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    fid = files.insert_file(
+        conn, folder_id=folder, directory="", name="a.jpg", extension_id=ext, size=1, mtime=1
+    )
+    foreign = {"id": "dinov2-vits14-384-v1", "dim": 384}
+    vector = base64.b64encode(np.zeros(384, np.float16).tobytes()).decode()
+    result = {
+        "files": [
+            {
+                "id": id_to_str(fid),
+                "sha1": "00" * 20,
+                "state": "fingerprinted",
+                "size": 1,
+                "mtime": 1,
+                "frames": [{"index": 0, "time_ms": 0, "vector": vector}],
+                "model_id": foreign["id"],
+            }
+        ]
+    }
+    sink_fingerprint(make_sink_ctx(reg, "a", {"model": foreign}, result))
+    assert files.get_file(conn, fid)["state"] == "fingerprinted"  # the hash is still valid
+    assert fingerprints.vector_count(vconn, foreign["id"]) == 0
+    assert jobs_db.list_jobs(conn) == []
+    sink_match(make_sink_ctx(reg, "a", {"model": foreign, "remove": []}, {"hits": [[1, 2, 0.1]]}))
+    assert conn.execute("SELECT COUNT(*) FROM pair").fetchone()[0] == 0

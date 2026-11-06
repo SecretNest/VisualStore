@@ -5,6 +5,7 @@ Queues vectors for files that lack them and rebuilds the index; judgments are un
 
 from __future__ import annotations
 
+import json
 from contextlib import closing
 
 from visualstore.db import fingerprints as fp
@@ -18,12 +19,27 @@ from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
 from visualstore.models.registry import get_spec, job_params, resolve_model_path
 
 
+def _cancel_foreign_jobs(conn, model_id: str) -> int:
+    """Queued fingerprint/match jobs still carry the previous model: their results would be
+    discarded by the sinks anyway, so cancel them instead of computing them."""
+    rows = conn.execute(
+        "SELECT id, params FROM job WHERE state = 'queued' AND type IN ('fingerprint', 'match')"
+    ).fetchall()
+    cancelled = 0
+    for row in rows:
+        model = (json.loads(row["params"]) or {}).get("model") or {}
+        if model.get("id") != model_id and jobs_db.cancel(conn, bytes(row["id"])):
+            cancelled += 1
+    return cancelled
+
+
 def run_model_switch(ctx: IoContext) -> dict:
     spec = get_spec(ctx.params["model_id"], ctx.model_dir)
     resolve_model_path(spec, ctx.model_dir)  # downloads when allowed; raises before any change
     model = job_params(spec, ctx.model_dir)
     with closing(ctx.open_metadata()) as conn, closing(ctx.open_vectors()) as vconn:
         settings_db.set(conn, "model.id", spec.id)
+        cancelled = _cancel_foreign_jobs(conn, spec.id)
         have = fp.files_with_vectors(vconn, spec.id)
         queued_files = jobs_made = 0
         for folder in folders_db.list_folders(conn):
@@ -66,6 +82,7 @@ def run_model_switch(ctx: IoContext) -> dict:
             jobs_db.enqueue(conn, type="rebuild_index", kind="io", priority=PRIORITY_INBOX)
         return {
             "model_id": spec.id,
+            "cancelled_jobs": cancelled,
             "queued_files": queued_files,
             "fingerprint_jobs": jobs_made,
             "rebuild_queued": rebuild,

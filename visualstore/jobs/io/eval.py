@@ -91,8 +91,8 @@ def _collect_labels(conn, v1, rnd: random.Random):
         members = [bytes.fromhex(h) for h in bucket["ids"].split(",")]
         sha_pairs.extend(tuple(sorted((members[0], m))) for m in members[1:])
     rnd.shuffle(sha_pairs)
-    positives.update(sha_pairs[:MAX_SHA1_PAIRS])
-    return positives, negatives, orphans
+    identical = {p for p in sha_pairs[:MAX_SHA1_PAIRS] if p not in positives}
+    return positives, identical, negatives, orphans
 
 
 def _random_negatives(conn, rnd: random.Random, want: int, positives: set) -> set:
@@ -120,7 +120,7 @@ def run_eval(ctx: IoContext) -> dict:
         closing(ctx.open_vectors()) as vconn,
         closing(_open_v1_or_error(ctx.params["db_path"])) as v1,
     ):
-        positives, negatives, orphans = _collect_labels(conn, v1, rnd)
+        positives, identical, negatives, orphans = _collect_labels(conn, v1, rnd)
         ctx.report(
             {
                 "done": 0,
@@ -128,20 +128,24 @@ def run_eval(ctx: IoContext) -> dict:
                 "message": f"{len(positives)} positives, {len(negatives)} labelled negatives",
             }
         )
-        random_negatives = _random_negatives(conn, rnd, want_random, positives)
-        needed = {f for p in positives | negatives | random_negatives for f in p}
+        random_negatives = _random_negatives(conn, rnd, want_random, positives | identical)
+        needed = {f for p in positives | identical | negatives | random_negatives for f in p}
         vectors = _load_vectors(vconn, spec.id, needed)
 
         def keep(pairs_):
             return [p for p in pairs_ if p[0] in vectors and p[1] in vectors]
 
-        pos, neg_lab, neg_rnd = keep(positives), keep(negatives), keep(random_negatives)
+        pos, pos_id = keep(positives), keep(identical)
+        neg_lab, neg_rnd = keep(negatives), keep(random_negatives)
+        # Only human "related" labels count: byte-identical pairs sit at distance ~0 and would
+        # drag the suggested thresholds down and bypass the minimum (final review).
         if len(pos) < MIN_POSITIVES:
             raise EvalError(
                 f"only {len(pos)} labelled positive pairs have vectors for {spec.id};"
                 f" at least {MIN_POSITIVES} are needed"
             )
         d_pos = _distances(pos, vectors)
+        d_id = _distances(pos_id, vectors)
         d_lab = _distances(neg_lab, vectors)
         d_rnd = _distances(neg_rnd, vectors)
         d_neg = np.concatenate([d_lab, d_rnd])
@@ -155,7 +159,12 @@ def run_eval(ctx: IoContext) -> dict:
                 "random": round(float((d_rnd <= thr).mean()), 4) if d_rnd.size else None,
             }
         t = thresholds_from(ctx.settings)
-        sets = (("positives", d_pos), ("negatives_labelled", d_lab), ("negatives_random", d_rnd))
+        sets = (
+            ("positives", d_pos),
+            ("positives_identical", d_id),
+            ("negatives_labelled", d_lab),
+            ("negatives_random", d_rnd),
+        )
         bands_current = {
             name: {
                 b: round(float(np.mean([band(x, False, t) == b for x in d])), 4) if d.size else None
@@ -168,6 +177,7 @@ def run_eval(ctx: IoContext) -> dict:
             "model_id": spec.id,
             "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "positives": len(pos),
+            "positives_identical": len(pos_id),
             "negatives_labelled": len(neg_lab),
             "negatives_random": len(neg_rnd),
             "orphans": orphans,
@@ -202,7 +212,8 @@ def _markdown(s: dict) -> str:
         "",
         f"Generated {s['generated_at']}.",
         "",
-        f"- Positive pairs (v1 related + byte-identical): {s['positives']}",
+        f"- Positive pairs (v1 related): {s['positives']}",
+        f"- Byte-identical pairs (reported, not used for thresholds): {s['positives_identical']}",
         f"- Labelled negative pairs (v1 unrelated): {s['negatives_labelled']}",
         f"- Random cross-Folder negative pairs: {s['negatives_random']}",
         f"- v1 rows skipped (missing files): {s['orphans']}",

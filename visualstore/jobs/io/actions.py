@@ -19,8 +19,10 @@ from visualstore.db import jobs as jobs_db
 from visualstore.domain.paths import TRASH_DIR
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs import results
+from visualstore.jobs.io.scan import _abs
 from visualstore.jobs.scheduler import IoContext
-from visualstore.jobs.types import PRIORITY_INBOX
+from visualstore.jobs.types import PRIORITY_INBOX, PRIORITY_USER
+from visualstore.models.registry import ModelError, get_spec, job_params
 
 
 class ActionError(Exception):
@@ -142,6 +144,37 @@ def _trash_one(
     return None
 
 
+def _refingerprint(conn, ctx: IoContext, folder, file_id: bytes, before: dict) -> None:
+    """Trashing dropped the file's vectors and thumbnail; compute them again (final review)."""
+    media = {bytes(r["id"]): r["media_type"] for r in folders_db.list_extensions(conn)}.get(
+        id_from_str(before["extension_id"]), "other"
+    )
+    if media != "image":
+        return
+    try:
+        model = job_params(get_spec(ctx.settings["model.id"], ctx.model_dir), ctx.model_dir)
+    except ModelError:
+        return  # no usable model configured; the next model switch recomputes everything
+    jobs_db.enqueue(
+        conn,
+        type="fingerprint",
+        kind="compute",
+        priority=PRIORITY_USER,
+        params={
+            "files": [
+                {
+                    "id": id_to_str(file_id),
+                    "path": _abs(folder["path"], before["directory"], before["name"]),
+                    "media_type": media,
+                }
+            ],
+            "model": model,
+            "max_pixels": int(ctx.settings["media.max_pixels"]),
+            "priority": PRIORITY_USER,
+        },
+    )
+
+
 def _restore_one(conn: sqlite3.Connection, ctx: IoContext, action_id: bytes) -> str | None:
     act = actions_db.get(conn, action_id)
     if act is None or act["type"] != "trash" or act["superseded_at"]:
@@ -182,6 +215,7 @@ def _restore_one(conn: sqlite3.Connection, ctx: IoContext, action_id: bytes) -> 
     if sha1 and results.link_identical(conn, file_id, sha1):
         if not jobs_db.has_active(conn, "regroup"):
             jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
+    _refingerprint(conn, ctx, folder, file_id, before)
     actions_db.supersede(conn, action_id)
     actions_db.record(
         conn,

@@ -6,6 +6,7 @@ import pytest
 from tests.unit.sinkctx import make_sink_ctx
 from visualstore.db import files, fingerprints, folders, groups, pairs
 from visualstore.db import jobs as jobs_db
+from visualstore.db import settings as settings_db
 from visualstore.index.usearch_index import IndexError_, VectorIndex, inspect
 from visualstore.jobs.compute.handlers import match
 from visualstore.jobs.results import RESULT_SINKS, sink_match
@@ -79,6 +80,7 @@ def world(tmp_path):
     reg = ProfileRegistry(tmp_path / "data")
     reg.open()
     reg.create("a")
+    settings_db.set(reg.conn("a"), "model.id", M["id"])  # the sinks only accept the active model
     conn, vconn = reg.conn("a"), reg.vectors_conn("a")
     for d in ("arch", "inbox"):
         (tmp_path / d).mkdir()
@@ -178,3 +180,21 @@ def test_sink_match_keeps_sha1_pairs_and_judgments_and_drops_removed_keys(world)
     [p] = pairs.pairs_of_file(conn, a)
     assert p["source"] == "sha1" and p["distance"] == 0.0 and p["judgment"] == "unrelated"
     assert fingerprints.pending_removals(vconn, M["id"]) == []
+
+
+def test_match_handler_replaces_vectors_of_reused_keys(tmp_path):
+    """A changed file is fingerprinted again under its existing key (final review, Critical 1)."""
+    base = {
+        "model": M,
+        "index_path": str(tmp_path / "index.usearch"),
+        "remove": [],
+        "top_k": 10,
+        "candidate_distance": 0.5,
+    }
+    first = [{"seq": 1, "vector": b64([1, 0, 0, 0])}, {"seq": 2, "vector": b64([0, 0, 1, 0])}]
+    match({**base, "entries": first}, lambda p: None)
+    again = match(
+        {**base, "entries": [{"seq": 1, "vector": b64([0, 0, 0.99, 0.01])}]}, lambda p: None
+    )
+    assert again["count"] == 2
+    assert {(q, h) for q, h, _ in again["hits"]} == {(1, 2)}

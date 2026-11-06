@@ -87,6 +87,7 @@ def _embed_image(path: str, model: dict, max_pixels: int) -> tuple[list[dict], s
 def fingerprint(params: dict, report: Report) -> dict:
     """SHA-1 for every file; vectors and a thumbnail for still images (design §7.2)."""
     from visualstore.media.errors import NotMedia, Unreadable
+    from visualstore.models.registry import ModelError
 
     entries = params.get("files", [])
     model = params.get("model")
@@ -111,6 +112,11 @@ def fingerprint(params: dict, report: Report) -> dict:
                     record.update({"state": "not_media", "reason": str(exc)[:200]})
                 except Unreadable as exc:
                     record.update({"state": "unreadable", "reason": str(exc)[:200]})
+                except ModelError:
+                    raise  # the whole batch is pointless without the model; fail visibly
+                except Exception as exc:  # noqa: BLE001 - one odd file must not cost the batch
+                    reason = f"{type(exc).__name__}: {exc}"[:200]
+                    record.update({"state": "unreadable", "reason": reason})
             out.append(record)
         except FileNotFoundError:
             out.append({"id": entry["id"], "sha1": None, "state": "missing", "size": 0})

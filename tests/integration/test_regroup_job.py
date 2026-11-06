@@ -208,3 +208,22 @@ def test_identical_spokes_stay_grouped_after_the_hub_is_deleted(world):
     g = groups.group_of_file(conn, b)
     assert g is not None and {m["file_id"] for m in groups.members(conn, g["id"])} == {b, c}
     assert g["has_identical"] == 1 and len(pairs.pairs_of_file(conn, b)) == 1
+
+
+def test_vector_pairs_of_another_model_do_not_form_groups(world):
+    """Final review, Important 3: distances of two models are never grouped together."""
+    reg, conn, f = world
+    a, b, c = (
+        add(conn, f["arch"], "a.jpg", b"\x01" * 20),
+        add(conn, f["inbox"], "b.jpg", b"\x02" * 20),
+        add(conn, f["inbox"], "c.jpg", b"\x03" * 20),
+    )
+    active = settings_db.get(conn, "model.id")
+    pairs.upsert_vector_pair(conn, a, b, 0.05, active)
+    pairs.upsert_vector_pair(conn, b, c, 0.05, "some-older-model")
+    groups.mark_dirty(conn, [a, b, c])
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    g = groups.group_of_file(conn, a)
+    assert g is not None and g["member_count"] == 2
+    assert groups.group_of_file(conn, c) is None
+    assert len(pairs.pairs_of_file(conn, c)) == 1  # the stale pair row itself is kept

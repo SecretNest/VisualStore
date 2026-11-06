@@ -30,3 +30,12 @@ The milestone 3 task-level plan listed decisions to take before expansion. They 
 - **Export path.** Both models exported with the legacy TorchScript ONNX exporter (`torch.onnx.export(..., dynamo=False)`, opset 17, torch 2.9 CPU wheels); the SSCD TorchScript checkpoint loads with `torch.jit.load` and matches the ONNX output to 2.7e-7. DINOv2 loads through `torch.hub` without xformers (the warnings are harmless).
 - **Import order.** On the runtime image (Debian bookworm, usearch 2.26, onnxruntime 1.31) importing onnxruntime *after* usearch's extension module segfaults the process; `visualstore.index.usearch_index` therefore imports onnxruntime first, and `tests/unit/test_import_order.py` guards it. The order is harmless on hosts where the crash does not occur.
 - **Synthetic images are poor evaluation material.** Smooth gradients and Perlin noise collapse to near-identical SSCD embeddings regardless of content; the real-model smoke test draws coloured shapes on a gradient instead. Thresholds are still to be measured on the user's library through the evaluation job.
+
+## Changes from the final review
+
+- **Reused keys.** A re-fingerprinted file keeps its `index_key.seq`; `VectorIndex.add` now replaces a key that is already present instead of letting usearch reject the duplicate (which failed the whole `match` batch).
+- **Rebuild catch-up.** `build_index` carries the highest exported `seq`; its sink queues `match` jobs for every live key above it, so batches fingerprinted while the index was being built are indexed and matched too. An empty rebuild does the same for anything that arrived meanwhile.
+- **Model fence.** `model_switch` cancels queued `fingerprint`/`match` jobs of the previous model; the sinks discard vector results whose model is not the active one (hash and thumbnail are kept); `regroup` ignores vector pairs of other models (the rows and their judgments stay).
+- **Restore.** Restoring a trashed image queues a `fingerprint` job for it, since trashing dropped its vectors and thumbnail.
+- **Evaluation positives.** Only v1 "related" labels count toward the 20-pair minimum and the suggested thresholds; byte-identical pairs are reported as their own distance set (`positives_identical`). This departs from the task-level plan, which pooled them.
+- **Odd files.** Any unexpected exception while embedding one image marks that file `unreadable` with the reason; only a missing model fails the batch.

@@ -10,6 +10,7 @@ from tests.fixtures.vips import require_pyvips
 from tests.unit.sinkctx import make_sink_ctx
 from visualstore.db import files, fingerprints, folders
 from visualstore.db import jobs as jobs_db
+from visualstore.db import settings as settings_db
 from visualstore.ids import id_to_str
 from visualstore.jobs.compute.handlers import fingerprint
 from visualstore.jobs.results import sink_fingerprint
@@ -33,6 +34,7 @@ def world(tmp_path):
     model_dir.mkdir()
     spec = tiny_spec(8)
     build_tiny_model(model_dir / spec.file_name(), dim=8)
+    settings_db.set(conn, "model.id", spec.id)  # the sinks only accept the active model
 
     def add(name, data, media="jpg"):
         (lib / name).write_bytes(data)
@@ -122,3 +124,35 @@ def test_sink_stores_frames_thumbnail_and_queues_match(world):
     assert p["index_path"] == str(reg.paths("a").index) and p["model"]["id"] == spec.id
     assert p["entries"][0]["seq"] == seq and p["top_k"] == 64 and p["candidate_distance"] == 0.5
     assert job["priority"] == 50 and job["kind"] == "compute"
+
+
+def test_unexpected_embedding_errors_mark_the_file_unreadable_not_the_batch(world, monkeypatch):
+    """Final review, Important 7 (Review Focus 4): one odd file must not cost the batch."""
+    import visualstore.jobs.compute.handlers as handlers
+
+    reg, conn, lib, model_dir, spec, add = world
+    good = add("good.png", png_bytes(40, 30, gradient=True))
+    odd = add("odd.png", png_bytes(20, 20))
+    real = handlers._embed_image
+
+    def flaky(path, model, max_pixels):
+        if path.endswith("odd.png"):
+            raise RuntimeError("onnxruntime exploded")
+        return real(path, model, max_pixels)
+
+    monkeypatch.setattr(handlers, "_embed_image", flaky)
+    result = fingerprint(
+        {
+            "files": [entry(good, lib, "good.png"), entry(odd, lib, "odd.png")],
+            "model": job_params(spec, model_dir),
+            "max_pixels": 10_000_000,
+        },
+        lambda p: None,
+    )
+    by_id = {e["id"]: e for e in result["files"]}
+    assert by_id[id_to_str(good)]["state"] == "fingerprinted" and by_id[id_to_str(good)]["frames"]
+    assert (
+        by_id[id_to_str(odd)]["state"] == "unreadable"
+        and "exploded" in by_id[id_to_str(odd)]["reason"]
+    )
+    assert by_id[id_to_str(odd)]["sha1"]  # the hash is still recorded
