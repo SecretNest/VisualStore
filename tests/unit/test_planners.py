@@ -97,3 +97,21 @@ def test_plan_regroup_drains_the_dirty_queue(registry):
     groups.mark_dirty(conn, [fid])
     assert plan_regroup(registry) == 1
     assert plan_regroup(registry) == 0  # already queued
+
+
+def test_plan_maintenance_is_weekly_and_never_doubles(registry):
+    from visualstore.jobs.io.planners import plan_maintenance
+
+    now = datetime(2026, 11, 7, tzinfo=UTC)
+    assert plan_maintenance(registry, now) == 1  # one per profile
+    assert plan_maintenance(registry, now) == 0  # still active
+    conn = registry.conn("a")
+    [job] = [j for j in jobs_db.list_jobs(conn) if j["type"] == "maintenance"]
+    jobs_db.mark_running(conn, bytes(job["id"]))
+    jobs_db.mark_done(conn, bytes(job["id"]))
+    with conn:
+        conn.execute(
+            "UPDATE job SET finished_at = ? WHERE id = ?", (now.isoformat(), bytes(job["id"]))
+        )
+    assert plan_maintenance(registry, now + timedelta(days=6)) == 0
+    assert plan_maintenance(registry, now + timedelta(days=8)) == 1

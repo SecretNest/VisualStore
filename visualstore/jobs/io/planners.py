@@ -74,3 +74,18 @@ def plan_regroup(registry: ProfileRegistry, now: datetime | None = None) -> int:
         jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
         enqueued += 1
     return enqueued
+
+
+def plan_maintenance(registry: ProfileRegistry, now: datetime | None = None) -> int:
+    """Weekly tidy-up (design §6.2): orphan derived files, stray frames, ANALYZE, VACUUM."""
+    now = now or datetime.now(UTC)
+    enqueued = 0
+    for name in registry.names():
+        conn = registry.conn(name)
+        if jobs_db.has_active(conn, "maintenance"):
+            continue
+        if not _due(jobs_db.latest_of_type(conn, "maintenance"), timedelta(days=7), now):
+            continue
+        jobs_db.enqueue(conn, type="maintenance", kind="io", priority=PRIORITY_MAINTENANCE)
+        enqueued += 1
+    return enqueued

@@ -34,7 +34,7 @@ from visualstore.db.folders import FolderError
 from visualstore.jobs.compute.pool import ComputePool
 from visualstore.jobs.io import IO_HANDLERS
 from visualstore.jobs.io.backup import plan_backups
-from visualstore.jobs.io.planners import plan_purge, plan_regroup, plan_scans
+from visualstore.jobs.io.planners import plan_maintenance, plan_purge, plan_regroup, plan_scans
 from visualstore.jobs.scheduler import Scheduler
 from visualstore.jobs.startup import check_indexes
 from visualstore.profiles import ProfileError, ProfileNotFound, ProfileRegistry
@@ -78,6 +78,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
                 plan_scans,
                 plan_purge,
                 plan_regroup,
+                plan_maintenance,
             ],
         )
         scheduler.requeue_interrupted()

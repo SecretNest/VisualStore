@@ -40,6 +40,23 @@ def files_with_vectors(vconn: sqlite3.Connection, model_id: str) -> set[bytes]:
     return {bytes(r["file_id"]) for r in rows}
 
 
+def file_ids_with_frames(vconn: sqlite3.Connection) -> set[bytes]:
+    rows = vconn.execute("SELECT DISTINCT file_id FROM fingerprint").fetchall()
+    return {bytes(r["file_id"]) for r in rows}
+
+
+def count_frames_of(vconn: sqlite3.Connection, file_ids: Iterable[bytes]) -> int:
+    ids = list(file_ids)
+    total = 0
+    for start in range(0, len(ids), 900):
+        chunk = ids[start : start + 900]
+        marks = ",".join("?" * len(chunk))
+        total += vconn.execute(
+            f"SELECT COUNT(*) FROM fingerprint WHERE file_id IN ({marks})", chunk
+        ).fetchone()[0]
+    return total
+
+
 def delete_for_files(vconn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:
     ids = [(f,) for f in file_ids]
     with vconn:
