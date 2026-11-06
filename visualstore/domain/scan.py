@@ -80,8 +80,8 @@ def move_candidates(plan: ScanPlan) -> dict[int, tuple[list[DbFile], list[DiskEn
 def resolve_moves(
     missing_sha1: dict[bytes, bytes], inserted_sha1: dict[tuple[str, str], bytes]
 ) -> list[tuple[bytes, tuple[str, str]]]:
-    """A missing file moved to a new location when exactly one new file has the same sha1 and
-    that new file matches exactly one missing file. Anything ambiguous is treated as delete + add."""
+    """A missing file moved when exactly one new file has the same sha1 and that new file
+    matches exactly one missing file. Anything ambiguous is treated as delete + add."""
     new_by_sha: dict[bytes, list[tuple[str, str]]] = defaultdict(list)
     for loc, sha in inserted_sha1.items():
         new_by_sha[sha].append(loc)

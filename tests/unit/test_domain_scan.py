@@ -46,7 +46,11 @@ def test_mtime_change_alone_marks_changed():
 
 def test_move_candidates_group_by_size_only_where_sizes_meet():
     plan = diff(
-        disk=[entry("new/a.jpg", size=10), entry("new/b.jpg", size=20), entry("new/c.jpg", size=99)],
+        disk=[
+            entry("new/a.jpg", size=10),
+            entry("new/b.jpg", size=20),
+            entry("new/c.jpg", size=99),
+        ],
         db=[
             dbfile(b"a" * 16, "old/a.jpg", size=10),
             dbfile(b"b" * 16, "old/b.jpg", size=20),
