@@ -27,7 +27,9 @@ def index_is_stale(registry: ProfileRegistry, name: str, model_dir: Path | None 
         return False
     if fp.get_meta(vconn, "model_id") != spec.id:
         return True
-    wanted = index_options(settings_db.all(conn), registry.paths(name), spec.dim)
+    wanted = index_options(
+        settings_db.all(conn), registry.paths(name), spec.dim, fp.vector_count(vconn, spec.id)
+    )
     if (fp.get_meta(vconn, "quantization") or "f16") != wanted["quantization"]:
         return True
     if int(fp.get_meta(vconn, "pca_dims") or 0) != wanted["pca_dims"]:

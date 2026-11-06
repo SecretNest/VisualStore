@@ -172,12 +172,25 @@ def fingerprint(params: dict, report: Report) -> dict:
 def match(params: dict, report: Report) -> dict:
     """Add a batch of vectors to the profile index and return raw neighbour hits (design §7.4).
     The sink applies compare scope and writes pairs; this function never sees the database."""
-    from visualstore.index.usearch_index import VectorIndex
+    from visualstore.index.usearch_index import VectorIndex, inspect
 
     model = params["model"]
     dim = int(model["dim"])
     options = _index_options(params, dim)
     index_path = Path(params["index_path"])
+    on_disk = inspect(index_path)
+    if on_disk is not None and (
+        on_disk["dimensions"] != options["index_dim"] or on_disk["dtype"] != options["quantization"]
+    ):
+        # The index was rebuilt with other options after this job was queued; its vectors were
+        # in that rebuild's snapshot (or are matched by the build sink), so there is nothing to do.
+        return {
+            "hits": [],
+            "added": 0,
+            "removed": 0,
+            "count": on_disk["count"],
+            "skipped": "index options changed; covered by the rebuild",
+        }
     index = VectorIndex.open_or_create(index_path, options["index_dim"], options["quantization"])
     removed = index.remove([int(s) for s in params.get("remove", [])])
     entries = params.get("entries", [])

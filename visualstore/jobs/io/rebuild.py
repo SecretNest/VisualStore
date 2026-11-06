@@ -31,7 +31,9 @@ def run_rebuild_index(ctx: IoContext) -> dict:
             chunks.append(np.array([np.frombuffer(r["vector"], dtype=np.float16) for r in rows]))
             ctx.report({"done": len(keys), "total": 0, "message": f"exported {len(keys)} vectors"})
         priority = int(ctx.params.get("priority", PRIORITY_INBOX))
-        options = index_options(ctx.settings, ctx.paths, spec.dim)
+        options = index_options(ctx.settings, ctx.paths, spec.dim, vector_count=len(keys))
+        if not options["pca_dims"]:
+            (ctx.paths.root / "pca.npz").unlink(missing_ok=True)
         if not keys:
             VectorIndex.empty(options["index_dim"], options["quantization"]).save(ctx.paths.index)
             fp.set_meta(vconn, "model_id", spec.id)

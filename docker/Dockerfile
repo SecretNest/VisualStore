@@ -38,6 +38,7 @@ RUN chmod 755 /app/models
 COPY visualstore/ ./visualstore/
 COPY --from=web /src/visualstore/static ./visualstore/static
 COPY README.md LICENSE ./
+COPY scripts/ ./scripts/
 RUN uv sync --frozen --no-dev --no-editable
 
 COPY docker/check-media-support.py ./docker/

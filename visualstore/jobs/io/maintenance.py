@@ -48,10 +48,20 @@ def _free_ratio(conn: sqlite3.Connection) -> float:
     return (free / pages) if pages else 0.0
 
 
-def _vacuum_if_needed(conn: sqlite3.Connection, ratio: float) -> tuple[bool, float]:
+def _busy(conn: sqlite3.Connection) -> bool:
+    """Other jobs queued or running: VACUUM would block every writer for its whole duration."""
+    row = conn.execute(
+        "SELECT 1 FROM job WHERE state IN ('queued', 'running') AND type != 'maintenance' LIMIT 1"
+    ).fetchone()
+    return row is not None
+
+
+def _vacuum_if_needed(
+    conn: sqlite3.Connection, ratio: float, allowed: bool = True
+) -> tuple[bool, float]:
     free = _free_ratio(conn)
     conn.execute("ANALYZE")
-    if free > ratio:
+    if free > ratio and allowed:
         conn.isolation_level = None  # VACUUM cannot run inside a transaction
         conn.execute("VACUUM")
         conn.isolation_level = ""
@@ -82,9 +92,12 @@ def run_maintenance(ctx: IoContext) -> dict:
                 jobs_db.enqueue(
                     conn, type="rebuild_index", kind="io", priority=PRIORITY_MAINTENANCE
                 )
-        vacuumed_meta, free_meta = _vacuum_if_needed(conn, ratio)
-        vacuumed_vec, free_vec = _vacuum_if_needed(vconn, ratio)
+        idle = not _busy(conn)
+        vacuumed_meta, free_meta = _vacuum_if_needed(conn, ratio, allowed=idle)
+        vacuumed_vec, free_vec = _vacuum_if_needed(vconn, ratio, allowed=idle)
+        skipped = None if idle else "busy"
     return {
+        "vacuum_skipped": skipped,
         "orphan_thumbnails": thumbs,
         "orphan_previews": previews,
         "orphan_frame_images": frame_images,

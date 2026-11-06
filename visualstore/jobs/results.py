@@ -66,15 +66,38 @@ def link_identical(conn: sqlite3.Connection, file_id: bytes, sha1: bytes) -> boo
 MATCH_BATCH = 64
 
 
-def index_options(settings: dict, paths, model_dim: int) -> dict:
-    """What a compute child needs to open or build the profile index (ADR-0008)."""
-    dims = int(settings.get("index.pca_dims", 0))
+def _options(quantization: str, dims: int, paths, model_dim: int) -> dict:
     return {
-        "quantization": str(settings.get("index.quantization", "f16")),
+        "quantization": quantization,
         "pca_dims": dims,
         "pca_path": str(paths.root / "pca.npz") if dims else None,
         "index_dim": dims or model_dim,
     }
+
+
+def index_options(settings: dict, paths, model_dim: int, vector_count: int | None = None) -> dict:
+    """The index the settings ask for (ADR-0008). With `vector_count`, PCA is dropped when the
+    profile has fewer vectors than dimensions: a projection cannot be fitted, so the index is
+    built unreduced rather than failing forever."""
+    dims = int(settings.get("index.pca_dims", 0))
+    if vector_count is not None and dims and vector_count < dims:
+        dims = 0
+    return _options(str(settings.get("index.quantization", "f16")), dims, paths, model_dim)
+
+
+def index_options_on_disk(vconn, paths, model_dim: int) -> dict:
+    """The index as it was last built (index_meta): what a `match` job must open."""
+    from visualstore.db import fingerprints as fp
+
+    quantization = fp.get_meta(vconn, "quantization") or "f16"
+    dims = int(fp.get_meta(vconn, "pca_dims") or 0)
+    return _options(quantization, dims, paths, model_dim)
+
+
+def rebuild_active(conn) -> bool:
+    from visualstore.db import jobs as jobs_db
+
+    return jobs_db.has_active(conn, "rebuild_index") or jobs_db.has_active(conn, "build_index")
 
 
 def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, priority: int) -> int:
@@ -93,7 +116,7 @@ def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, prio
             params={
                 "model": model,
                 "index_path": str(paths.index),
-                "index": index_options(settings, paths, int(model["dim"])),
+                "index": index_options_on_disk(vconn, paths, int(model["dim"])),
                 "entries": entries[start : start + MATCH_BATCH],
                 "remove": fp.pending_removals(vconn, model["id"]) if start == 0 else [],
                 "top_k": int(settings["similarity.top_k"]),
@@ -171,12 +194,17 @@ def sink_fingerprint(ctx: SinkContext) -> None:
         if link_identical(conn, file_id, sha1):
             dirty = True
     if entries_for_match and model:
-        index_ok = ctx.paths.index.is_file() and fp.get_meta(vconn, "model_id") == model["id"]
+        # While a rebuild is active the index on disk is about to be replaced: queue nothing,
+        # the build sink matches every vector written since its snapshot (Review Focus 1).
+        active = rebuild_active(conn)
+        index_ok = (
+            ctx.paths.index.is_file()
+            and fp.get_meta(vconn, "model_id") == model["id"]
+            and not active
+        )
         if index_ok:
             enqueue_match(conn, vconn, ctx.settings, ctx.paths, model, entries_for_match, priority)
-        elif not (
-            jobs_db.has_active(conn, "rebuild_index") or jobs_db.has_active(conn, "build_index")
-        ):
+        elif not active:
             # No usable index yet (or built for another model): rebuild from vectors.db, which
             # now includes the vectors just written (design §7.4, Review Focus 1). While a
             # rebuild is active, nothing is queued: sink_build_index matches what arrived late.
@@ -249,6 +277,7 @@ RESULT_SINKS["match"] = sink_match
 def sink_build_index(ctx: SinkContext) -> None:
     from visualstore.clock import now_iso
     from visualstore.db import fingerprints as fp
+    from visualstore.db import jobs as jobs_db
     from visualstore.jobs.types import PRIORITY_INBOX
 
     fp.set_meta(ctx.vconn, "model_id", ctx.result["model_id"])
@@ -259,6 +288,18 @@ def sink_build_index(ctx: SinkContext) -> None:
     fp.set_meta(ctx.vconn, "pca_dims", str(int(options.get("pca_dims", 0))))
     if ctx.result["model_id"] != ctx.settings.get("model.id"):
         return  # the model changed again meanwhile; the switch queued its own rebuild
+    wanted = index_options(
+        ctx.settings,
+        ctx.paths,
+        int(ctx.result["dim"]),
+        fp.vector_count(ctx.vconn, ctx.result["model_id"]),
+    )
+    built = (str(options.get("quantization", "f16")), int(options.get("pca_dims", 0)))
+    if (wanted["quantization"], wanted["pca_dims"]) != built:
+        # the settings changed while the child was building: build again (final review I1)
+        if not jobs_db.has_active(ctx.conn, "rebuild_index"):
+            jobs_db.enqueue(ctx.conn, type="rebuild_index", kind="io", priority=PRIORITY_INBOX)
+        return
     match_unindexed(
         ctx.conn,
         ctx.vconn,

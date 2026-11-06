@@ -56,23 +56,27 @@ def test_match_handler_adds_searches_and_filters_by_distance(tmp_path):
     assert {(q, h) for q, h, _ in again["hits"]} == {(4, 3)}
 
 
-def test_match_handler_refuses_a_foreign_index(tmp_path):
+def test_match_handler_skips_an_index_of_another_shape(tmp_path):
+    """An index that does not match the job's options was rebuilt since the job was queued:
+    the job skips (its vectors are in the rebuild's snapshot) instead of failing three times."""
     index_path = tmp_path / "index.usearch"
     other = VectorIndex.empty(8)
     other.add([1], np.ones((1, 8), dtype=np.float32) / np.sqrt(8))
     other.save(index_path)
-    with pytest.raises(IndexError_):
-        match(
-            {
-                "model": M,
-                "index_path": str(index_path),
-                "entries": [],
-                "remove": [],
-                "top_k": 5,
-                "candidate_distance": 0.5,
-            },
-            lambda p: None,
-        )
+    result = match(
+        {
+            "model": M,
+            "index_path": str(index_path),
+            "entries": [],
+            "remove": [],
+            "top_k": 5,
+            "candidate_distance": 0.5,
+        },
+        lambda p: None,
+    )
+    assert result["hits"] == [] and result["skipped"]
+    with pytest.raises(IndexError_):  # the wrapper itself still refuses a mismatching file
+        VectorIndex.open_or_create(index_path, 4)
 
 
 @pytest.fixture

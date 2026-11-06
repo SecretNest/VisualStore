@@ -281,3 +281,36 @@ def test_startup_cleans_frames_of_unknown_files_and_requeues_files_without_vecto
         "files_without_vectors": 0,
         "rebuilds": 0,
     }
+
+
+def test_sink_queues_no_match_while_a_rebuild_is_active(world):
+    """Final review I2: the build sink catches up on vectors written meanwhile."""
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    VectorIndex.empty(512).save(reg.paths("a").index)
+    fingerprints.set_meta(vconn, "model_id", MODEL)
+    jobs_db.enqueue(conn, type="rebuild_index", kind="io", priority=50)
+    folder = folders.create_folder(
+        conn, name="L", path=str(reg.data_dir), role="inbox", compare_scope="all"
+    )
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    fid = files.insert_file(
+        conn, folder_id=folder, directory="", name="a.jpg", extension_id=ext, size=1, mtime=1
+    )
+    vector = base64.b64encode(np.zeros(512, np.float16).tobytes()).decode()
+    result = {
+        "files": [
+            {
+                "id": id_to_str(fid),
+                "sha1": "00" * 20,
+                "state": "fingerprinted",
+                "size": 1,
+                "mtime": 1,
+                "frames": [{"index": 0, "time_ms": 0, "vector": vector}],
+                "model_id": MODEL,
+            }
+        ]
+    }
+    sink_fingerprint(make_sink_ctx(reg, "a", {"model": {"id": MODEL, "dim": 512}}, result))
+    assert fingerprints.vector_count(vconn, MODEL) == 1
+    assert {j["type"] for j in jobs_db.list_jobs(conn, state="queued")} == {"rebuild_index"}

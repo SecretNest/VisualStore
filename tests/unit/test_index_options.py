@@ -89,3 +89,89 @@ def test_match_projects_entries_and_queries_with_the_same_file(world):  # noqa: 
     )
     key0 = fingerprints.allocate_keys(vconn, ids[0], MODEL, [0])[0]
     assert any(h == key0 and d < 0.01 for _, h, d in hits["hits"])
+
+
+def test_build_sink_requeues_when_the_options_changed_during_the_build(world):  # noqa: F811
+    """Final review I1: a change while a rebuild runs is not lost."""
+    reg = world
+    conn = reg.conn("a")
+    seed_vectors(reg, 10)
+    run_rebuild_index(ctx_for(reg))
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    params = json.loads(job["params"])
+    jobs_db.mark_running(conn, bytes(job["id"]))
+    settings_db.set(conn, "index.quantization", "i8")  # changed while the child builds
+    sink_build_index(make_sink_ctx(reg, "a", params, build_index(params, lambda p: None)))
+    assert fingerprints.get_meta(reg.vectors_conn("a"), "quantization") == "f16"  # what was built
+    assert any(j["type"] == "rebuild_index" for j in jobs_db.list_jobs(conn, state="queued"))
+
+
+def test_match_skips_instead_of_failing_when_the_index_was_rebuilt_with_other_options(world):  # noqa: F811
+    """Final review I2."""
+    reg = world
+    seed_vectors(reg, 5)
+    run_rebuild_index(ctx_for(reg))
+    conn = reg.conn("a")
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    params = json.loads(job["params"])
+    sink_build_index(make_sink_ctx(reg, "a", params, build_index(params, lambda p: None)))
+    stale = {**params["index"], "quantization": "i8"}  # a match queued before the change
+    result = match(
+        {
+            "model": {
+                "id": MODEL,
+                "dim": 512,
+                "path": "",
+                "input_size": 288,
+                "mean": [0, 0, 0],
+                "std": [1, 1, 1],
+            },
+            "index_path": str(reg.paths("a").index),
+            "index": stale,
+            "entries": [],
+            "remove": [],
+            "top_k": 5,
+            "candidate_distance": 0.5,
+        },
+        lambda p: None,
+    )
+    assert result["hits"] == [] and result["skipped"]
+
+
+def test_too_few_vectors_for_pca_builds_without_it_and_is_not_stale(world):  # noqa: F811
+    """Final review I3: an impossible projection must not wedge the profile."""
+    reg = world
+    conn = reg.conn("a")
+    seed_vectors(reg, 5)
+    settings_db.set(conn, "index.pca_dims", 32)
+    run_rebuild_index(ctx_for(reg))
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    params = json.loads(job["params"])
+    assert params["index"]["pca_dims"] == 0 and params["index"]["index_dim"] == 512
+    sink_build_index(make_sink_ctx(reg, "a", params, build_index(params, lambda p: None)))
+    assert not index_is_stale(reg, "a")
+    assert not (reg.paths("a").root / "pca.npz").exists()
+
+
+def test_match_params_describe_the_index_on_disk_not_the_settings(world):  # noqa: F811
+    """Final review I2 (forward direction): enqueue_match reads index_meta."""
+    import base64
+
+    from visualstore.jobs.results import enqueue_match
+
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    seed_vectors(reg, 40)
+    settings_db.set(conn, "index.pca_dims", 16)
+    run_rebuild_index(ctx_for(reg))
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    params = json.loads(job["params"])
+    sink_build_index(make_sink_ctx(reg, "a", params, build_index(params, lambda p: None)))
+    settings_db.set(conn, "index.pca_dims", 0)  # changed again, rebuild not run yet
+    model = {"id": MODEL, "dim": 512}
+    vec = base64.b64encode(np.zeros(512, np.float16).tobytes()).decode()
+    enqueue_match(
+        conn, vconn, settings_db.all(conn), reg.paths("a"), model, [{"seq": 1, "vector": vec}], 50
+    )
+    [m] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]
+    assert json.loads(m["params"])["index"]["pca_dims"] == 16  # what the index on disk is

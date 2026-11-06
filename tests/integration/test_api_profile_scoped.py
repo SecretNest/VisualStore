@@ -138,3 +138,20 @@ def test_jobs_listing_validates_state_and_clamps_limit(client):
     assert client.get("/api/p/a/jobs?state=bogus").status_code == 400
     assert client.get("/api/p/a/jobs?limit=0").status_code == 200
     assert client.get("/api/p/a/jobs?limit=99999").status_code == 200
+
+
+def test_pca_dims_is_validated_and_a_running_rebuild_does_not_swallow_a_change(client):
+    from visualstore.db import jobs as jobs_db
+
+    setup_profile(client)
+    assert client.put("/api/p/a/settings/index.pca_dims", json={"value": 512}).status_code == 400
+    assert client.put("/api/p/a/settings/index.pca_dims", json={"value": 64}).status_code == 200
+    conn = client.app.state.vs.registry.conn("a")
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "rebuild_index"]
+    jobs_db.mark_running(conn, bytes(job["id"]))
+    again = client.put("/api/p/a/settings/index.quantization", json={"value": "i8"})
+    assert again.json()["rebuild_queued"] is True
+    assert (
+        len([j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "rebuild_index"])
+        == 1
+    )

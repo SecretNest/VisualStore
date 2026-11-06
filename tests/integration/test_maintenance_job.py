@@ -110,3 +110,13 @@ def test_vacuum_only_above_the_free_page_ratio(world):
     assert low["vacuumed"] is False
     high = run_maintenance(ctx_for(reg, **{"maintenance.vacuum_free_ratio": 0.0}))
     assert high["vacuumed"] is True and high["free_ratio"] >= 0.0
+
+
+def test_vacuum_waits_for_an_idle_job_table(world):
+    """Final review I4: VACUUM blocks every writer; never while other jobs are active."""
+    reg, conn, add = world
+    ids = [add(f"g{i}.jpg") for i in range(300)]
+    files.delete_files(conn, ids)
+    jobs_db.enqueue(conn, type="scan", kind="io", priority=50)
+    busy = run_maintenance(ctx_for(reg, **{"maintenance.vacuum_free_ratio": 0.0}))
+    assert busy["vacuumed"] is False and busy["vacuum_skipped"] == "busy"
