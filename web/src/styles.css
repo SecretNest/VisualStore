@@ -50,3 +50,6 @@ td.with-thumb { white-space: nowrap; }
 .preview-missing { padding: 2rem; opacity: 0.7; }
 .detail-columns { display: grid; grid-template-columns: minmax(18rem, 2fr) 3fr; gap: 1rem; align-items: start; }
 @media (max-width: 900px) { .detail-columns { grid-template-columns: 1fr; } }
+.file-head { display: flex; gap: 1rem; align-items: flex-start; }
+.file-head dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
+.file-head dt { opacity: 0.7; }

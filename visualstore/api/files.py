@@ -46,9 +46,38 @@ async def file_detail(file_id: str, request: Request, name: str = Depends(get_pr
     fid = parse_id(file_id)
     row, folder = _file_and_folder(conn, fid)
     d = files_db.file_to_dict(row, folder["path"])
+    d["folder_name"] = folder["name"]
+    d["media_type"] = _media_type(conn, bytes(row["extension_id"]))
     g = groups_db.group_of_file(conn, fid)
     d["group_id"] = id_to_str(bytes(g["id"])) if g else None
-    d["pairs"] = [pairs_db.pair_to_dict(p) for p in pairs_db.pairs_of_file(conn, fid)]
+    rows = pairs_db.pairs_of_file(conn, fid)
+    d["pairs"] = [pairs_db.pair_to_dict(p) for p in rows]
+    settings = settings_db.all(conn)
+    low = float(settings["grouping.group_distance"])
+    high = float(settings["similarity.candidate_distance"])
+    candidates = []
+    for p in rows:
+        if p["source"] != "vector" or p["judgment"] == "unrelated" or p["distance"] is None:
+            continue
+        if not (low < p["distance"] <= high):
+            continue
+        other = bytes(p["file_b"]) if bytes(p["file_a"]) == fid else bytes(p["file_a"])
+        orow = files_db.get_file(conn, other)
+        if orow is None:
+            continue
+        ofolder = folders_db.get_folder(conn, bytes(orow["folder_id"]))
+        og = groups_db.group_of_file(conn, other)
+        candidates.append(
+            {
+                "file_id": id_to_str(other),
+                "distance": p["distance"],
+                "judgment": p["judgment"],
+                "relative_path": files_db.relative_path(orow["directory"], orow["name"]),
+                "folder_name": ofolder["name"],
+                "group_id": id_to_str(bytes(og["id"])) if og else None,
+            }
+        )
+    d["candidates"] = sorted(candidates, key=lambda c: c["distance"])
     return d
 
 

@@ -1,0 +1,124 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { ApiError, get, put } from "../api";
+import Thumb from "../components/Thumb";
+import { formatBytes } from "../format";
+import type { FileDetail as Detail } from "../types";
+
+export default function FileDetail() {
+  const { name = "", fileId = "" } = useParams();
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setDetail(await get<Detail>(`/api/p/${name}/files/${fileId}`));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load the file.");
+    }
+  }, [name, fileId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function judge(other: string, judgment: "related_keep" | "unrelated") {
+    setError(null);
+    try {
+      await put(`/api/p/${name}/pairs/${fileId}/${other}/judgment`, { judgment });
+      setNotice(judgment === "unrelated" ? "Marked unrelated; groups are being recomputed." : "Marked related; both files are kept.");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not record the judgment.");
+    }
+  }
+
+  if (error && !detail)
+    return (
+      <p className="error" role="alert">
+        {error}
+      </p>
+    );
+  if (!detail) return <p className="muted">Loading…</p>;
+
+  return (
+    <section>
+      <h1>
+        <code>{detail.relative_path}</code>
+      </h1>
+      <div className="file-head">
+        <Thumb name={name} fileId={detail.id} size={160} />
+        <dl>
+          <dt>Folder</dt>
+          <dd>{detail.folder_name}</dd>
+          <dt>Size</dt>
+          <dd>{formatBytes(detail.size)}</dd>
+          <dt>Type</dt>
+          <dd>{detail.media_type}</dd>
+          <dt>State</dt>
+          <dd>{detail.state}</dd>
+          <dt>SHA-1</dt>
+          <dd>
+            <code>{detail.sha1 ?? "—"}</code>
+          </dd>
+          <dt>Group</dt>
+          <dd>{detail.group_id ? <Link to={`/p/${name}/groups/${detail.group_id}`}>open group</Link> : "none"}</dd>
+        </dl>
+      </div>
+      <p>
+        <a href={`/api/p/${name}/files/${detail.id}/content`} target="_blank" rel="noreferrer">
+          Open original
+        </a>
+      </p>
+
+      <h2>Candidate pairs</h2>
+      <p className="muted">Similar beyond the grouping threshold but within the candidate distance. Judging a pair changes the groups.</p>
+      {detail.candidates.length === 0 ? (
+        <p className="muted">No candidates.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Distance</th>
+              <th>Judgment</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.candidates.map((c) => (
+              <tr key={c.file_id}>
+                <td className="with-thumb">
+                  <Thumb name={name} fileId={c.file_id} />
+                  <Link to={`/p/${name}/files/${c.file_id}`}>{c.relative_path}</Link> <span className="muted">· {c.folder_name}</span>
+                </td>
+                <td>{c.distance.toFixed(3)}</td>
+                <td>{c.judgment.replace("_", " ")}</td>
+                <td className="actions">
+                  <button type="button" onClick={() => void judge(c.file_id, "related_keep")} disabled={c.judgment === "related_keep"}>
+                    Related, keep both
+                  </button>
+                  <button type="button" className="danger" onClick={() => void judge(c.file_id, "unrelated")}>
+                    Unrelated
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {notice && (
+        <p className="muted" role="status">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}

@@ -162,3 +162,39 @@ def test_detail_carries_the_nearest_neighbour_per_member(client, seeded):
     assert near[a] == {"file_id": b, "distance": 0.0}  # tie with c: b.jpg sorts first
     assert near[b] == {"file_id": a, "distance": 0.0}
     assert near[c] == {"file_id": a, "distance": 0.0}
+
+
+def test_file_detail_lists_candidates_beyond_the_grouping_threshold(client, seeded):
+    """Review Focus 5."""
+    s = seeded
+    conn = client.app.state.vs.registry.conn("a")
+    add_extra = lambda name: files.insert_file(  # noqa: E731
+        conn,
+        folder_id=s["inbox"],
+        directory="",
+        name=name,
+        extension_id=folders.extension_map(conn)["jpg"]["id"],
+        size=1,
+        mtime=1,
+    )
+    near, cand, far, bad = (
+        add_extra("near.jpg"),
+        add_extra("cand.jpg"),
+        add_extra("far.jpg"),
+        add_extra("bad.jpg"),
+    )
+    a = s["a"]
+    pairs.upsert_vector_pair(
+        conn, a, near, 0.1, "m"
+    )  # within group_distance (0.3): grouped, not a candidate
+    pairs.upsert_vector_pair(conn, a, cand, 0.4, "m")  # candidate
+    pairs.upsert_vector_pair(conn, a, far, 0.6, "m")  # beyond candidate_distance (0.5)
+    pairs.upsert_vector_pair(conn, a, bad, 0.35, "m")
+    pairs.set_judgment(conn, a, bad, "unrelated", "user")
+    d = client.get(f"/api/p/a/files/{id_to_str(a)}").json()
+    assert d["media_type"] == "image" and d["folder_name"] == "Arch"
+    assert [c["file_id"] for c in d["candidates"]] == [id_to_str(cand)]
+    assert (
+        d["candidates"][0]["relative_path"] == "cand.jpg" and d["candidates"][0]["distance"] == 0.4
+    )
+    assert d["candidates"][0]["group_id"] is None and d["group_id"] == id_to_str(s["gid"])

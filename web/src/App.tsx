@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
+import FileDetail from "./pages/FileDetail";
 import Folders from "./pages/Folders";
 import GroupDetail from "./pages/GroupDetail";
 import Groups from "./pages/Groups";
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/p/:name/folders" element={<Folders />} />
           <Route path="/p/:name/groups" element={<Groups />} />
           <Route path="/p/:name/groups/:groupId" element={<GroupDetail />} />
+          <Route path="/p/:name/files/:fileId" element={<FileDetail />} />
           <Route path="/p/:name/jobs" element={<Jobs />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

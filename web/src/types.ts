@@ -146,3 +146,30 @@ export interface EvalReport {
   size: number;
   time: number;
 }
+
+export interface Candidate {
+  file_id: string;
+  distance: number;
+  judgment: Pair["judgment"];
+  relative_path: string;
+  folder_name: string;
+  group_id: string | null;
+}
+
+export interface FileDetail {
+  id: string;
+  folder_id: string;
+  folder_name: string;
+  directory: string;
+  name: string;
+  size: number;
+  mtime: number;
+  sha1: string | null;
+  state: string;
+  media_type: "image" | "animated" | "video" | "other";
+  relative_path: string;
+  absolute_path: string;
+  group_id: string | null;
+  pairs: Pair[];
+  candidates: Candidate[];
+}
