@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from tests.integration.conftest import login
 from visualstore.app import create_app
+from visualstore.auth import SessionSigner
 from visualstore.db import jobs as jobs_db
 from visualstore.profiles import ProfileRegistry
 
@@ -44,12 +45,13 @@ def test_logout_clears_session(client):
 
 
 def test_tampered_cookie_is_401_not_500(client):
-    """Review Focus 5."""
-    login(client)
-    client.cookies.set("visualstore_session", "garbage.value")
-    assert client.get("/api/system/status").status_code == 401
-    client.cookies.set("visualstore_session", "")
-    assert client.get("/api/system/status").status_code == 401
+    """Review Focus 5: garbage, empty, and foreign-key tokens are all plain 401s."""
+    forged = SessionSigner(b"x" * 32).issue()
+    for bad in ("garbage.value", "", forged, "a.b.c", "%00"):
+        response = client.get(
+            "/api/system/status", headers={"Cookie": f"visualstore_session={bad}"}
+        )
+        assert response.status_code == 401, bad
 
 
 def test_sixth_failed_login_is_rate_limited(client):
