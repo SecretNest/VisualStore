@@ -1,5 +1,7 @@
 """Profile management (design §5.1 Profile, §8.1 Profile management page)."""
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
@@ -34,26 +36,28 @@ class DeleteProfile(BaseModel):
 
 
 @router.get("")
-def list_profiles(request: Request) -> list[ProfileOut]:
+async def list_profiles(request: Request) -> list[ProfileOut]:
     return [ProfileOut.of(p) for p in get_state(request).registry.list()]
 
 
 @router.post("", status_code=201)
-def create_profile(body: CreateProfile, request: Request) -> ProfileOut:
+async def create_profile(body: CreateProfile, request: Request) -> ProfileOut:
     return ProfileOut.of(get_state(request).registry.create(body.name, body.display_name))
 
 
 @router.patch("/{name}")
-def rename_profile(name: str, body: RenameProfile, request: Request) -> ProfileOut:
+async def rename_profile(name: str, body: RenameProfile, request: Request) -> ProfileOut:
     return ProfileOut.of(get_state(request).registry.rename(name, body.display_name))
 
 
 @router.delete("/{name}")
-def delete_profile(name: str, body: DeleteProfile, request: Request) -> dict:
+async def delete_profile(name: str, body: DeleteProfile, request: Request) -> dict:
     get_state(request).registry.delete(name, confirm_name=body.confirm_name)
     return {"ok": True}
 
 
 @router.get("/{name}/usage")
-def profile_usage(name: str, request: Request) -> dict:
-    return {"bytes": get_state(request).registry.usage_bytes(name)}
+async def profile_usage(name: str, request: Request) -> dict:
+    registry = get_state(request).registry
+    registry.get(name)  # 404 for unknown names, on the loop thread like every db call
+    return {"bytes": await asyncio.to_thread(registry.usage_bytes, name)}

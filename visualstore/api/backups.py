@@ -18,12 +18,14 @@ class TriggerBackup(BaseModel):
 
 
 @router.get("")
-def get_backups(request: Request, name: str = Depends(get_profile)) -> list[dict]:
+async def get_backups(request: Request, name: str = Depends(get_profile)) -> list[dict]:
     return list_backups(get_state(request).config.backup_dir, name)
 
 
 @router.post("", status_code=201)
-def trigger_backup(body: TriggerBackup, request: Request, name: str = Depends(get_profile)) -> dict:
+async def trigger_backup(
+    body: TriggerBackup, request: Request, name: str = Depends(get_profile)
+) -> dict:
     unknown = [t for t in body.targets if t not in TARGETS]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown backup target(s): {unknown}.")

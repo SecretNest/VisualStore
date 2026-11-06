@@ -6,8 +6,9 @@ from pathlib import Path
 
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    # check_same_thread=False: the server process uses connections from the event-loop
-    # thread and from the single io-job worker thread, never concurrently on one connection.
+    # Registry connections are used only on the event-loop thread (async API handlers and
+    # the scheduler). Io job handlers open their own connections in their worker thread.
+    # check_same_thread=False only because the connection is created outside the loop.
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

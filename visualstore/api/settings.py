@@ -18,12 +18,12 @@ class SettingValue(BaseModel):
 
 
 @router.get("")
-def get_settings(request: Request, name: str = Depends(get_profile)) -> dict:
+async def get_settings(request: Request, name: str = Depends(get_profile)) -> dict:
     return settings_db.all(get_state(request).registry.conn(name))
 
 
 @router.put("/{key}")
-def put_setting(
+async def put_setting(
     key: str, body: SettingValue, request: Request, name: str = Depends(get_profile)
 ) -> dict:
     conn = get_state(request).registry.conn(name)

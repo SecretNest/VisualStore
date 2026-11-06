@@ -164,8 +164,10 @@ class ProfileRegistry:
             raise ProfileNotFound(f"profile {name!r} does not exist") from None
 
     def usage_bytes(self, name: str) -> int:
+        """Filesystem only, no database access: safe to run in a worker thread."""
         root = self.paths(name).root
-        self.get(name)
+        if not root.is_dir():
+            return 0
         return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
 
     # -- mutations ---------------------------------------------------------------------

@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(
 
 
 @router.get("/status")
-def status(request: Request) -> dict:
+async def status(request: Request) -> dict:
     state = get_state(request)
     return {
         "version": __version__,

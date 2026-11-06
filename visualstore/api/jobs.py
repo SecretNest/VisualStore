@@ -30,7 +30,7 @@ def _job_or_404(conn, job_id: str):
 
 
 @router.get("")
-def list_jobs(
+async def list_jobs(
     request: Request,
     name: str = Depends(get_profile),
     state: str | None = None,
@@ -41,7 +41,7 @@ def list_jobs(
 
 
 @router.post("", status_code=201)
-def create_job(body: CreateJob, request: Request, name: str = Depends(get_profile)) -> dict:
+async def create_job(body: CreateJob, request: Request, name: str = Depends(get_profile)) -> dict:
     kind = KIND_OF.get(body.type)
     if kind is None:
         raise HTTPException(status_code=400, detail=f"Unknown job type '{body.type}'.")
@@ -53,14 +53,14 @@ def create_job(body: CreateJob, request: Request, name: str = Depends(get_profil
 
 
 @router.get("/{job_id}")
-def get_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
+async def get_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
     conn = get_state(request).registry.conn(name)
     _, row = _job_or_404(conn, job_id)
     return jobs_db.to_dict(row)
 
 
 @router.post("/{job_id}/retry")
-def retry_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
+async def retry_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
     conn = get_state(request).registry.conn(name)
     raw, _ = _job_or_404(conn, job_id)
     if not jobs_db.retry(conn, raw):
@@ -69,7 +69,7 @@ def retry_job(job_id: str, request: Request, name: str = Depends(get_profile)) -
 
 
 @router.post("/{job_id}/cancel")
-def cancel_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
+async def cancel_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
     conn = get_state(request).registry.conn(name)
     raw, _ = _job_or_404(conn, job_id)
     if not jobs_db.cancel(conn, raw):
