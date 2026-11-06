@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:  # run on a feature branch before merging
 
 jobs:
   backend:
@@ -53,3 +54,39 @@ jobs:
           target: runtime
           push: false
           tags: visualstore:ci
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips42 ffmpeg
+      - name: Install
+        run: uv sync --frozen && cd web && npm ci
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(cd web && node -e "console.log(require('@playwright/test/package.json').version)")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Browsers
+        run: cd web && npx playwright install --with-deps chromium
+      - name: End to end
+        run: cd web && npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: web/test-results
+          if-no-files-found: ignore
