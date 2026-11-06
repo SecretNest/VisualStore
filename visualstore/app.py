@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from visualstore import __version__
 from visualstore.api import auth as auth_api
 from visualstore.api import backups as backups_api
+from visualstore.api import folders as folders_api
 from visualstore.api import jobs as jobs_api
 from visualstore.api import overview as overview_api
 from visualstore.api import profiles as profiles_api
@@ -23,6 +24,7 @@ from visualstore.api import settings as settings_api
 from visualstore.api import system as system_api
 from visualstore.auth import LoginRateLimiter, SessionSigner
 from visualstore.config import Config
+from visualstore.db.folders import FolderError
 from visualstore.jobs.compute.pool import ComputePool
 from visualstore.jobs.io import IO_HANDLERS
 from visualstore.jobs.io.backup import plan_backups
@@ -96,6 +98,10 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     async def _profile_error(request: Request, exc: ProfileError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
+    @app.exception_handler(FolderError)
+    async def _folder_error(request: Request, exc: FolderError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
     app.include_router(auth_api.router)
     app.include_router(system_api.router)
     app.include_router(profiles_api.router)
@@ -103,6 +109,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
     app.include_router(settings_api.router)
     app.include_router(overview_api.router)
     app.include_router(backups_api.router)
+    app.include_router(folders_api.router)
     _mount_static(app, static_dir or DEFAULT_STATIC_DIR)
     return app
 
