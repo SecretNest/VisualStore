@@ -53,3 +53,7 @@ td.with-thumb { white-space: nowrap; }
 .file-head { display: flex; gap: 1rem; align-items: flex-start; }
 .file-head dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
 .file-head dt { opacity: 0.7; }
+.frame-strip { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.25rem 0; }
+.frame-strip button { display: grid; justify-items: center; gap: 0.15rem; padding: 0.2rem; font-size: 0.75rem; }
+.frame-strip button img { object-fit: cover; border-radius: 0.2rem; }
+.strip-block { margin-top: 0.5rem; }

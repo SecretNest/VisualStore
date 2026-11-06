@@ -58,8 +58,7 @@ test("switch model, scan a folder, resolve the identical group, restore from tra
 
   await page.goto("/p/demo/groups");
   await expect(page.getByRole("link", { name: "2 files" })).toHaveCount(2, { timeout: 30_000 });
-  await expect(page.getByRole("row", { name: /2 files/ }).first()).toContainText("identical");
-  await page.getByRole("link", { name: "2 files" }).first().click();
+  await page.getByRole("row", { name: /identical/ }).getByRole("link", { name: "2 files" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Group of 2 files");
   const previews = page.locator("img.preview");
   await expect(previews).toHaveCount(2);
@@ -78,6 +77,17 @@ test("switch model, scan a folder, resolve the identical group, restore from tra
   await expect(page).not.toHaveURL(firstGroupUrl); // Enter confirms and moves to the next open group
   await page.goto("/p/demo/groups");
   await expect(page.getByRole("link", { name: "2 files" })).toHaveCount(1, { timeout: 20_000 });
+
+  await page.getByRole("row", { name: /near duplicate/ }).getByRole("link", { name: "2 files" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Group of 2 files");
+  const strip = page.getByRole("list", { name: "Frames" });
+  await expect(strip.getByRole("listitem")).toHaveCount(2, { timeout: 20_000 });
+  await expect(strip.getByRole("listitem").nth(1)).toContainText("1.0 s");
+  await strip.getByRole("listitem").nth(1).click();
+  await expect(page.locator("img.preview-preview").first()).toHaveAttribute("src", /\/frame\/1$/);
+  await expect.poll(() => page.locator("img.preview-preview").first().evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
+  await page.goto("/p/demo/groups");
   await page.getByText("Default rules for this filter").click();
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(page.getByRole("status")).toContainText("1 groups match, 1 get the default resolution (0 skipped), 1 files will be moved to the trash");
@@ -87,7 +97,7 @@ test("switch model, scan a folder, resolve the identical group, restore from tra
 
   await page.goto("/p/demo/jobs");
   await expect(page.locator("code", { hasText: "b.png" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator("code", { hasText: "e.png" })).toBeVisible();
+  await expect(page.locator("code", { hasText: "still.png" })).toBeVisible();
   await page.getByRole("button", { name: "Select all" }).click();
   await page.getByRole("button", { name: /Restore selected/ }).click();
   await expect(page.getByText("Nothing in the trash.")).toBeVisible({ timeout: 20_000 });

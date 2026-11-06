@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
 import Compare from "../components/Compare";
+import FrameStrip from "../components/FrameStrip";
 import Thumb from "../components/Thumb";
 import { formatBytes } from "../format";
 import type { Decision, Group, GroupDetail as Detail } from "../types";
@@ -14,6 +15,7 @@ export default function GroupDetail() {
   const [keys, setKeys] = useState<KeyState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState<Record<string, number>>({});
 
   const load = useCallback(async () => {
     try {
@@ -278,7 +280,21 @@ export default function GroupDetail() {
             leftId={selectedId}
             rightId={targetId}
             mode={keys.mode}
+            leftFrame={picked[selectedId] ?? null}
+            rightFrame={targetId ? (picked[targetId] ?? null) : null}
           />
+          {[selectedId, targetId]
+            .filter((id): id is string => id !== null)
+            .map((id) => {
+              const member = group.members.find((m) => m.file_id === id);
+              if (!member || (member.media_type !== "animated" && member.media_type !== "video")) return null;
+              return (
+                <div key={id} className="strip-block">
+                  <span className="muted">Frames of {member.relative_path}</span>
+                  <FrameStrip name={name} fileId={id} picked={picked[id] ?? null} onPick={(index) => setPicked({ ...picked, [id]: index })} />
+                </div>
+              );
+            })}
         </div>
       </div>
       <div className="actions-row">

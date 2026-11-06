@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import type { CompareMode } from "../pages/groupKeys";
 import { layers } from "./compareLayout";
 
-function PreviewImage({ name, fileId, opacity, shown, onFallback }: { name: string; fileId: string; opacity: number; shown: boolean; onFallback: (id: string) => void }) {
+function PreviewImage({ name, fileId, frame, opacity, shown, onFallback }: { name: string; fileId: string; frame: number | null; opacity: number; shown: boolean; onFallback: (id: string) => void }) {
   const [source, setSource] = useState<"preview" | "thumbnail" | "none">("preview");
-  useEffect(() => setSource("preview"), [fileId]);
+  useEffect(() => setSource("preview"), [fileId, frame]);
   const style = { opacity, visibility: shown ? "visible" : "hidden" } as const;
   if (source === "none")
     return (
@@ -12,7 +12,8 @@ function PreviewImage({ name, fileId, opacity, shown, onFallback }: { name: stri
         No image available
       </div>
     );
-  const path = source === "preview" ? "preview" : "thumbnail";
+  const main = frame === null ? "preview" : `frame/${frame}`;
+  const path = source === "preview" ? main : "thumbnail";
   return (
     <img
       className={`preview preview-${source}`}
@@ -29,7 +30,21 @@ function PreviewImage({ name, fileId, opacity, shown, onFallback }: { name: stri
   );
 }
 
-export default function Compare({ name, leftId, rightId, mode }: { name: string; leftId: string; rightId: string | null; mode: CompareMode }) {
+export default function Compare({
+  name,
+  leftId,
+  rightId,
+  mode,
+  leftFrame = null,
+  rightFrame = null,
+}: {
+  name: string;
+  leftId: string;
+  rightId: string | null;
+  mode: CompareMode;
+  leftFrame?: number | null;
+  rightFrame?: number | null;
+}) {
   const [opacity, setOpacity] = useState(0.5);
   const [tick, setTick] = useState(0);
   const [fallbacks, setFallbacks] = useState<Set<string>>(new Set());
@@ -44,8 +59,10 @@ export default function Compare({ name, leftId, rightId, mode }: { name: string;
   return (
     <div className={`compare compare-${mode}${l.stacked ? " compare-stacked" : ""}`} data-tick={tick}>
       <div className="compare-images">
-        <PreviewImage name={name} fileId={leftId} opacity={l.left.opacity} shown={l.left.shown} onFallback={note} />
-        {rightId && <PreviewImage name={name} fileId={rightId} opacity={l.right.opacity} shown={l.right.shown} onFallback={note} />}
+        <PreviewImage name={name} fileId={leftId} frame={leftFrame} opacity={l.left.opacity} shown={l.left.shown} onFallback={note} />
+        {rightId && (
+          <PreviewImage name={name} fileId={rightId} frame={rightFrame} opacity={l.right.opacity} shown={l.right.shown} onFallback={note} />
+        )}
       </div>
       {mode === "overlay" && rightId && (
         <label className="inline-label">

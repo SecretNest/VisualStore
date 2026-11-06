@@ -26,13 +26,21 @@ def png(rgb, size=64):
 (tmp / "media/lib/a.png").write_bytes(png((255, 0, 0)))
 (tmp / "media/lib/b.png").write_bytes(png((255, 0, 0)))  # byte-identical to a.png
 (tmp / "media/lib/sub/c.png").write_bytes(png((0, 255, 0)))  # far from red under the tiny model
-(tmp / "media/lib/sub2/d.png").write_bytes(png((0, 0, 255)))  # a second byte-identical pair (blue)
-(tmp / "media/lib/sub2/e.png").write_bytes(png((0, 0, 255)))
 build_tiny_model(tmp / "models/tiny-test-8-v1.onnx")
 (tmp / "models/models.json").write_text(json.dumps({
     "tiny-test-8-v1": {"dim": 8, "input_size": 16, "mean": [0, 0, 0], "std": [1, 1, 1],
                        "description": "e2e model"}}))
 PY
+# A solid navy clip (far from red and green under the tiny model) and its first frame as a
+# still: they must land in the same group. ffmpeg comes from the host or from the test image.
+clip_cmd=(ffmpeg -nostdin -hide_banner -loglevel error -y)
+if command -v ffmpeg >/dev/null 2>&1; then
+  "${clip_cmd[@]}" -f lavfi -i "color=c=0x000080:size=160x120:rate=10" -t 1.5 -pix_fmt yuv420p -movflags +faststart "$tmp/media/lib/sub2/clip.mp4"
+  "${clip_cmd[@]}" -ss 0 -i "$tmp/media/lib/sub2/clip.mp4" -frames:v 1 "$tmp/media/lib/sub2/still.png"
+else
+  docker run --rm --user "$(id -u):$(id -g)" -v "$tmp:$tmp" visualstore:test "${clip_cmd[@]}" -f lavfi -i "color=c=0x000080:size=160x120:rate=10" -t 1.5 -pix_fmt yuv420p -movflags +faststart "$tmp/media/lib/sub2/clip.mp4"
+  docker run --rm --user "$(id -u):$(id -g)" -v "$tmp:$tmp" visualstore:test "${clip_cmd[@]}" -ss 0 -i "$tmp/media/lib/sub2/clip.mp4" -frames:v 1 "$tmp/media/lib/sub2/still.png"
+fi
 printf '%s' "$tmp/media/lib" > "$HERE/.media-path"
 
 export VISUALSTORE_PASSWORD=e2e-password
