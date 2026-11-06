@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,6 +12,8 @@ import pytest
 
 def require_ffmpeg():
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        if os.environ.get("VISUALSTORE_TEST_REQUIRE_MEDIA") == "1":
+            raise RuntimeError("ffmpeg/ffprobe are required here but missing")
         pytest.skip("ffmpeg/ffprobe not available", allow_module_level=True)
 
 

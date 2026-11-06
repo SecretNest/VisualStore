@@ -71,6 +71,8 @@ probes it every 30 s, so `docker ps` shows `healthy` / `unhealthy`.
 
 ## Logs and upgrades
 
-`docker compose logs -f visualstore` shows one line per job state change and start-up checks.
+`docker compose logs -f visualstore` shows start-up checks, requeues, failures and dead compute
+children; routine job progress is on the Jobs page, not in the log.
 To upgrade: `docker compose pull && docker compose up -d`. Database migrations run on start;
-derived data (index, thumbnails, previews) is rebuilt only when it no longer matches.
+the search index is rebuilt when it no longer matches the databases or the index settings
+(thumbnails and previews are kept, or rendered again on demand).

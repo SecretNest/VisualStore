@@ -63,4 +63,5 @@ CMD ["python", "-m", "visualstore"]
 # tree can be bind-mounted over /app/visualstore and /app/tests to run the suite with libvips.
 FROM runtime AS test
 RUN uv sync --frozen
+ENV VISUALSTORE_TEST_REQUIRE_MEDIA=1
 CMD ["python", "-m", "pytest", "-q"]

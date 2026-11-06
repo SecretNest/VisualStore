@@ -47,15 +47,18 @@ export default function GroupDetail() {
   }, [load]);
 
   const goNext = useCallback(async () => {
-    const next = await get<Group[]>(
-      `/api/p/${name}/groups?status=open&limit=2`,
-    );
-    const target = next.find((g) => g.id !== groupId);
-    navigate(target ? `/p/${name}/groups/${target.id}` : `/p/${name}/groups`);
+    // Queue order, wrapping around, never a group whose decisions are being executed.
+    try {
+      const next = await get<{ id: string | null }>(`/api/p/${name}/groups/${groupId}/next`);
+      navigate(next.id ? `/p/${name}/groups/${next.id}` : `/p/${name}/groups`);
+    } catch {
+      const open = await get<Group[]>(`/api/p/${name}/groups?status=open&limit=1`).catch(() => []);
+      navigate(open[0] && open[0].id !== groupId ? `/p/${name}/groups/${open[0].id}` : `/p/${name}/groups`);
+    }
   }, [name, groupId, navigate]);
 
   const confirm = useCallback(async () => {
-    if (!keys || busy) return;
+    if (!keys || busy || detail?.group.status !== "open") return;
     setBusy(true);
     try {
       const decisions = Object.fromEntries(
@@ -70,23 +73,35 @@ export default function GroupDetail() {
     } finally {
       setBusy(false);
     }
-  }, [keys, busy, name, groupId, goNext]);
+  }, [keys, busy, name, groupId, goNext, detail]);
 
   const markUnrelated = useCallback(async () => {
     if (!keys || keys.anchor === null) return;
     const a = keys.members[keys.anchor].file_id;
     const b = keys.members[keys.selected].file_id;
+    setBusy(true);
     try {
-      await put(`/api/p/${name}/pairs/${a}/${b}/judgment`, {
-        judgment: "unrelated",
-      });
-      await load();
+      await put(`/api/p/${name}/pairs/${a}/${b}/judgment`, { judgment: "unrelated" });
+      // The judgment queues a regroup that replaces this group; wait for it rather than
+      // showing the old members, then move on.
+      const before = keys.members.map((m) => m.file_id).join(",");
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => window.setTimeout(r, 500));
+        try {
+          const d = await get<Detail>(`/api/p/${name}/groups/${groupId}`);
+          if (d.group.members.map((m) => m.file_id).join(",") !== before) break;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) break;
+          throw err;
+        }
+      }
+      await goNext();
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Could not mark the pair.",
-      );
+      setError(err instanceof ApiError ? err.message : "Could not mark the pair.");
+    } finally {
+      setBusy(false);
     }
-  }, [keys, name, load]);
+  }, [keys, name, groupId, goNext]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -119,7 +134,7 @@ export default function GroupDetail() {
     return () => window.removeEventListener("keydown", onKey);
   }, [keys, detail, confirm, goNext, markUnrelated]);
 
-  if (error)
+  if (error && (!detail || !keys))
     return (
       <p className="error" role="alert">
         {error}
@@ -329,6 +344,11 @@ export default function GroupDetail() {
         </button>
       </div>
       <p className="muted">{detail.pairs.length} pairs in this group.</p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

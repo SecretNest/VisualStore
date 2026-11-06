@@ -57,3 +57,5 @@ td.with-thumb { white-space: nowrap; }
 .frame-strip button { display: grid; justify-items: center; gap: 0.15rem; padding: 0.2rem; font-size: 0.75rem; }
 .frame-strip button img { object-fit: cover; border-radius: 0.2rem; }
 .strip-block { margin-top: 0.5rem; }
+pre.result { max-height: 12rem; overflow: auto; font-size: 0.75rem; margin: 0.25rem 0 0; }
+.table-wrap { overflow-x: auto; }

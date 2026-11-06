@@ -28,6 +28,8 @@ jobs:
         run: uv run ruff check . && uv run ruff format --check .
       - name: Test
         run: uv run pytest -q
+        env:
+          VISUALSTORE_TEST_REQUIRE_MEDIA: "1"  # libvips/ffmpeg are installed above: never skip
 
   frontend:
     runs-on: ubuntu-latest

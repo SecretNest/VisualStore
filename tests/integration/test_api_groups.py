@@ -233,3 +233,47 @@ def test_move_and_rename_endpoints_validate_and_queue(client, seeded):
 def test_group_members_carry_their_media_type(client, seeded):
     detail = client.get(f"/api/p/a/groups/{id_to_str(seeded['gid'])}").json()
     assert {m["media_type"] for m in detail["group"]["members"]} == {"image"}
+
+
+def test_next_group_walks_the_queue_in_order_and_skips_groups_awaiting_execution(client, seeded):
+    """Audit F1: Skip and Enter must advance, not bounce between the two newest groups."""
+    s = seeded
+    conn = client.app.state.vs.registry.conn("a")
+    ext = folders.extension_map(conn)["jpg"]["id"]
+
+    def group_of(name_a, name_b, when):
+        a = files.insert_file(
+            conn, folder_id=s["inbox"], directory="", name=name_a, extension_id=ext, size=1, mtime=1
+        )
+        b = files.insert_file(
+            conn, folder_id=s["inbox"], directory="", name=name_b, extension_id=ext, size=1, mtime=1
+        )
+        pairs.upsert_sha1_pair(conn, a, b)
+        [gid] = groups.replace_groups(
+            conn, [], [NewGroup(frozenset({a, b}), 0.0, True, "open", {a: "keep", b: "delete"})]
+        )
+        with conn:
+            conn.execute("UPDATE file_group SET updated_at = ? WHERE id = ?", (when, gid))
+        return id_to_str(gid)
+
+    with conn:
+        conn.execute(
+            "UPDATE file_group SET updated_at = '2026-01-01T00:00:00+00:00' WHERE id = ?",
+            (s["gid"],),
+        )
+    g2 = group_of("g2a.jpg", "g2b.jpg", "2026-01-02T00:00:00+00:00")
+    g3 = group_of("g3a.jpg", "g3b.jpg", "2026-01-03T00:00:00+00:00")  # newest: first in the queue
+    g1 = id_to_str(s["gid"])
+    nxt = lambda g: client.get(f"/api/p/a/groups/{g}/next").json()["id"]  # noqa: E731
+    assert nxt(g3) == g2 and nxt(g2) == g1 and nxt(g1) == g3  # queue order, then wrap around
+    # a group whose decisions are being executed is not offered again
+    from visualstore.db import jobs as jobs_db
+
+    jobs_db.enqueue(conn, type="apply_action", kind="io", params={"group_id": g2, "trash": []})
+    assert nxt(g3) == g1
+    assert (
+        client.get("/api/p/a/groups/00000000-0000-4000-8000-000000000000/next").status_code == 404
+    )
+    with conn:
+        conn.execute("UPDATE file_group SET status = 'resolved'")
+    assert client.get(f"/api/p/a/groups/{g3}/next").json()["id"] is None

@@ -4,10 +4,12 @@ Self-hosted deduplication for large image, animated-image, and video libraries. 
 
 VisualStore is the successor to [ImageStore](https://github.com/SecretNest/ImageStore), a Windows PowerShell module that found byte-identical files with SHA-1 and visually similar images with pHash. VisualStore keeps ImageStore's domain rules and can import its database, but is a rewrite: cross-platform, browser-operated, and with a similarity engine that treats stills, animated images, and video frames in one vector space.
 
-> **Status: milestone 2 complete.** VisualStore replaces ImageStore's same-file workflow: Folders,
-> scanning with move detection, SHA-1 groups with preselected decisions, trash with restore, archive
-> move and v1 import all run from the browser. Visual similarity arrives in milestone 3. See the
-> [roadmap](docs/design/11-roadmap.md).
+> **Status: all six milestones shipped** (2026-11-07). Scanning with move detection, SHA-1 and
+> visual-similarity groups (stills, animated images and video frames in one vector space), the
+> three-keystroke review with image comparison, bulk rules, trash with restore, archive move, v1
+> import with a model evaluation report, index memory options, maintenance, a non-root image with
+> a health check, and a user guide. What remains is measuring on real data; see the
+> [roadmap](docs/design/11-roadmap.md) and [`docs/user/`](docs/user/).
 
 ## What it does
 
@@ -35,7 +37,7 @@ browser ──HTTP──► server (FastAPI + static React frontend)
 
 One image, one container, one process tree. The server is the only database writer; compute children receive work over in-process queues. No external broker, no database server.
 
-Planned stack: Python 3.12, FastAPI, SQLite (WAL), ONNX Runtime, pyvips, ffmpeg, usearch, React + TypeScript + Vite. Multi-arch image for linux/amd64 and linux/arm64. Details in [Architecture](docs/design/02-architecture.md).
+Stack: Python 3.12, FastAPI, SQLite (WAL), ONNX Runtime, pyvips, ffmpeg, usearch, React + TypeScript + Vite. Multi-arch image for linux/amd64 and linux/arm64. Details in [Architecture](docs/design/02-architecture.md).
 
 ## Configuration
 
@@ -47,7 +49,7 @@ Planned stack: Python 3.12, FastAPI, SQLite (WAL), ONNX Runtime, pyvips, ffmpeg,
 | `VISUALSTORE_COMPUTE_PROCESSES` | Compute children, default CPU count. |
 | `VISUALSTORE_PORT` | Listen port, default 8080. |
 
-Everything else is a per-profile setting in the UI. A compose example is in [Operations](docs/design/07-operations.md#94-container-and-compose). Images will be published to `ghcr.io/secretnest/visualstore` and to Alibaba Cloud Container Registry under the same path.
+Everything else is a per-profile setting in the UI. A compose example is in [Operations](docs/design/07-operations.md#94-container-and-compose). Images are published to `ghcr.io/secretnest/visualstore` and to Alibaba Cloud Container Registry under the same path.
 
 ## Running
 

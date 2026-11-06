@@ -127,7 +127,7 @@ export default function Folders() {
               className="danger"
               onClick={() => {
                 if (window.confirm(`Remove Folder ${f.name} from this profile? Files on disk are not touched.`))
-                  void run(() => del(`/api/p/${name}/folders/${f.id}`), "Folder removed.");
+                  void run(() => del(`/api/p/${name}/folders/${f.id}`), "Folder removal queued; its files leave the library in a moment.");
               }}
             >
               Remove

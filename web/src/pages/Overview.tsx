@@ -80,10 +80,50 @@ export default function Overview() {
           </button>
         </div>
         <div className="card">
+          <h2>Groups</h2>
+          <p>
+            {data.groups.open ?? 0} open · {data.groups.auto_resolved ?? 0} automatic · {data.groups.resolved ?? 0}{" "}
+            resolved · {data.groups.dismissed ?? 0} dismissed
+            {data.dirty ? ` · ${data.dirty} files waiting for regrouping` : ""}
+          </p>
+        </div>
+        <div className="card">
           <h2>Data</h2>
           <p>{(data.usage_bytes / 1024 / 1024).toFixed(1)} MB on disk</p>
         </div>
       </div>
+      <h2>Folders</h2>
+      {data.folders.length === 0 ? (
+        <p className="muted">No Folders yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Folder</th>
+              <th>Role</th>
+              <th>New</th>
+              <th>Fingerprinted</th>
+              <th>Not media</th>
+              <th>Unreadable</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.folders.map((f) => (
+              <tr key={f.id} className={f.enabled ? "" : "muted"}>
+                <td>
+                  {f.name}
+                  {!f.enabled && <span className="tag">disabled</span>}
+                </td>
+                <td>{f.role}</td>
+                <td>{f.counts.new ?? 0}</td>
+                <td>{f.counts.fingerprinted ?? 0}</td>
+                <td>{f.counts.not_media ?? 0}</td>
+                <td>{f.counts.unreadable ?? 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       <h2>Recent jobs</h2>
       {data.recent_jobs.length === 0 ? (
         <p className="muted">No jobs yet.</p>

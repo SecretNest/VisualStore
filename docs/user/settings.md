@@ -48,7 +48,8 @@ The thresholds are provisional until you run the evaluation on your own judgment
 |---|---|---|
 | `index.quantization` | `f16` | `f16` (2 bytes per dimension) or `i8` (1 byte). |
 | `index.pca_dims` | 0 | 0 = off; otherwise the index dimension after a per-profile PCA (for example 256). |
-| `maintenance.vacuum_free_ratio` | 0.2 | The weekly maintenance job runs VACUUM when more than this share of database pages is free. |
+| `maintenance.vacuum_free_ratio` | 0.2 | The weekly maintenance job runs VACUUM when more than this share of database pages is free (and only while no other job is active). |
+| `jobs.keep_days` | 7 | Done and cancelled jobs are forgotten after this many days (failed ones after four times as long). |
 
 Changing an index option queues a full rebuild; stored vectors are untouched. Index size per
 frame: dimension × bytes per dimension plus about 100 bytes of graph. For a million stills:

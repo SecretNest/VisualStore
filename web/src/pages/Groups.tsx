@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, get, post } from "../api";
 import Thumb from "../components/Thumb";
@@ -39,6 +39,19 @@ export default function Groups() {
     [name, status, folderId, identical, bandFilter, minSize],
   );
 
+  const offsetRef = useRef(0);
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+
+  const refreshCounts = useCallback(async () => {
+    try {
+      setCounts(await get<Counts>(`/api/p/${name}/groups/counts`));
+    } catch {
+      /* keep the last counts; the next full load reports errors */
+    }
+  }, [name]);
+
   const load = useCallback(async () => {
     try {
       const [first, c, f] = await Promise.all([
@@ -59,10 +72,13 @@ export default function Groups() {
   useEffect(() => {
     void load();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState !== "visible") return;
+      // Once the user paged past the first page, a full reload would discard "Load more".
+      if (offsetRef.current > PAGE) void refreshCounts();
+      else void load();
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, refreshCounts]);
 
   const filterBody = {
     band: bandFilter || null,

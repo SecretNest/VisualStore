@@ -15,6 +15,7 @@ export interface Job {
   attempts: number;
   progress: { done?: number; total?: number; message?: string; result?: unknown };
   error: string | null;
+  not_before?: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

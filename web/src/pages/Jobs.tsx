@@ -149,6 +149,13 @@ export default function Jobs() {
               <td className="muted">
                 {j.progress.total ? `${j.progress.done ?? 0}/${j.progress.total} ` : ""}
                 {j.progress.message ?? ""}
+                {j.state === "queued" && j.not_before && ` · retrying at ${formatWhen(j.not_before)}`}
+                {j.state === "done" && j.progress.result !== undefined && (
+                  <details>
+                    <summary>result</summary>
+                    <pre className="result">{JSON.stringify(j.progress.result, null, 1)}</pre>
+                  </details>
+                )}
               </td>
               <td className="muted">{j.error ?? ""}</td>
               <td className="muted">{formatWhen(j.created_at)}</td>
@@ -178,7 +185,23 @@ export default function Jobs() {
                 <code>{key}</code>
               </td>
               <td>
-                {typeof value === "string" ? (
+                {key === "index.quantization" ? (
+                  <select
+                    aria-label={key}
+                    value={String(value)}
+                    onChange={(e) =>
+                      void run(async () => {
+                        const r = await put<{ rebuild_queued?: boolean }>(`/api/p/${name}/settings/${key}`, {
+                          value: e.target.value,
+                        });
+                        if (r.rebuild_queued) setNotice("Index option changed: a rebuild has been queued.");
+                      })
+                    }
+                  >
+                    <option value="f16">f16 (2 bytes per dimension)</option>
+                    <option value="i8">i8 (1 byte per dimension, less exact)</option>
+                  </select>
+                ) : typeof value === "string" ? (
                   <code>{value}</code>
                 ) : typeof value === "boolean" ? (
                   <input
@@ -196,9 +219,12 @@ export default function Jobs() {
                     onBlur={(e) => {
                       const n = Number(e.target.value);
                       if (n !== value)
-                        void run(() =>
-                          put(`/api/p/${name}/settings/${key}`, { value: Number.isInteger(value) ? Math.round(n) : n }),
-                        );
+                        void run(async () => {
+                          const r = await put<{ rebuild_queued?: boolean }>(`/api/p/${name}/settings/${key}`, {
+                            value: Number.isInteger(value) ? Math.round(n) : n,
+                          });
+                          if (r.rebuild_queued) setNotice("Index option changed: a rebuild has been queued.");
+                        });
                     }}
                   />
                 )}

@@ -28,6 +28,7 @@ On container restart every `running` job returns to `queued` with `attempts` inc
 | `purge_trash` | io | Remove trashed files past the retention period. |
 | `import_v1` | io | See [08 v1 Import](08-v1-import.md). |
 | `eval` | io | Open a v1 database read-only and evaluate models / thresholds against its human judgments, see [05 §7.6](05-pipeline.md#76-model-and-thresholds). |
+| `folder_delete` | io | Remove a Folder's files, vectors, index keys and derived images in chunks, then the Folder; the API disables the Folder at once. |
 | `maintenance` | io | Weekly: orphan thumbnails / previews / frame images, frame rows of unknown files, ANALYZE, VACUUM above a free-page ratio. |
 
 ## 6.3 Priority

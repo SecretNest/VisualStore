@@ -123,6 +123,45 @@ async def get_group(group_id: str, request: Request, name: str = Depends(get_pro
     }
 
 
+def _awaiting_execution(conn, group_id: bytes) -> bool:
+    return jobs_db.has_active_with_param(conn, "apply_action", "group_id", id_to_str(group_id))
+
+
+@router.get("/groups/{group_id}/next")
+async def next_group(
+    group_id: str, request: Request, name: str = Depends(get_profile), status: str = "open"
+) -> dict:
+    """The group to open after this one: the next in queue order (newest first), wrapping
+    around at the end, never one whose decisions are being executed (audit F1)."""
+    if status not in groups_db.STATUSES:
+        raise HTTPException(status_code=400, detail=f"status must be one of {groups_db.STATUSES}")
+    conn = get_state(request).registry.conn(name)
+    gid = parse_id(group_id)
+    cursor = conn.execute(
+        "SELECT rowid, updated_at FROM file_group WHERE id = ?", (gid,)
+    ).fetchone()
+    if cursor is None:
+        raise HTTPException(status_code=404, detail="No such group.")
+    after = (
+        "SELECT id FROM file_group WHERE status = ? AND id != ?"
+        " AND (updated_at < ? OR (updated_at = ? AND rowid < ?))"
+        " ORDER BY updated_at DESC, rowid DESC LIMIT 50"
+    )
+    wrap = (
+        "SELECT id FROM file_group WHERE status = ? AND id != ?"
+        " ORDER BY updated_at DESC, rowid DESC LIMIT 50"
+    )
+    for sql, args in (
+        (after, (status, gid, cursor["updated_at"], cursor["updated_at"], cursor["rowid"])),
+        (wrap, (status, gid)),
+    ):
+        for row in conn.execute(sql, args):
+            candidate = bytes(row["id"])
+            if not _awaiting_execution(conn, candidate):
+                return {"id": id_to_str(candidate)}
+    return {"id": None}
+
+
 @router.post("/groups/{group_id}/resolve")
 async def resolve_group(
     group_id: str, body: Resolve, request: Request, name: str = Depends(get_profile)
