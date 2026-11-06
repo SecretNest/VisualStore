@@ -73,7 +73,7 @@ def test_switch_queues_only_missing_vectors_and_keeps_judgments(world):
     """Review Focus 3."""
     reg, conn, vconn, model_dir, add = world
     a, b = add("a.jpg"), add("b.jpg", with_new=True)
-    add("c.mp4", media="mp4")  # videos are not fingerprinted by the model in this milestone
+    c = add("c.mp4", media="mp4")  # videos get frame vectors too (milestone 5)
     pairs.upsert_sha1_pair(conn, a, b)
     pairs.set_judgment(conn, a, b, "related_keep", "user")
     groups.replace_groups(
@@ -82,7 +82,7 @@ def test_switch_queues_only_missing_vectors_and_keeps_judgments(world):
     result = run_model_switch(ctx_for(reg, model_dir, {"model_id": NEW}))
     assert (
         result["model_id"] == NEW
-        and result["queued_files"] == 1
+        and result["queued_files"] == 2
         and result["rebuild_queued"] is True
     )
     assert settings_db.get(conn, "model.id") == NEW
@@ -90,7 +90,8 @@ def test_switch_queues_only_missing_vectors_and_keeps_judgments(world):
     fps = [j for j in queued if j["type"] == "fingerprint"]
     assert len(fps) == 1
     params = json.loads(fps[0]["params"])
-    assert [f["id"] for f in params["files"]] == [id_to_str(a)] and params["model"]["id"] == NEW
+    assert [f["id"] for f in params["files"]] == [id_to_str(a), id_to_str(c)]
+    assert params["model"]["id"] == NEW and params["files"][1]["media_type"] == "video"
     assert any(j["type"] == "rebuild_index" for j in queued)
     assert pairs.pairs_of_file(conn, a)[0]["judgment"] == "related_keep"
     assert groups.group_of_file(conn, a)["status"] == "resolved"

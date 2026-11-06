@@ -93,6 +93,19 @@ def has_active_with_param(conn: sqlite3.Connection, type: str, key: str, value) 
     return row is not None
 
 
+def active_file_ids(conn: sqlite3.Connection, type: str) -> set[str]:
+    """File ids named in the `files` list of queued/running jobs of a type."""
+    rows = conn.execute(
+        "SELECT params FROM job WHERE type = ? AND state IN ('queued', 'running')", (type,)
+    ).fetchall()
+    out: set[str] = set()
+    for r in rows:
+        for entry in (json.loads(r["params"]) or {}).get("files", []):
+            if isinstance(entry, dict) and "id" in entry:
+                out.add(str(entry["id"]))
+    return out
+
+
 def has_active(conn: sqlite3.Connection, type: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM job WHERE type = ? AND state IN ('queued', 'running') LIMIT 1", (type,)

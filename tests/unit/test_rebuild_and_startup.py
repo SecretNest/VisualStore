@@ -238,3 +238,46 @@ def test_sinks_ignore_results_computed_with_a_model_that_is_no_longer_active(wor
     assert jobs_db.list_jobs(conn) == []
     sink_match(make_sink_ctx(reg, "a", {"model": foreign, "remove": []}, {"hits": [[1, 2, 0.1]]}))
     assert conn.execute("SELECT COUNT(*) FROM pair").fetchone()[0] == 0
+
+
+def test_startup_cleans_frames_of_unknown_files_and_requeues_files_without_vectors(world):
+    """Review Focus 3: a metadata restore older than vectors.db heals itself."""
+    from tests.fixtures.models import install_fake_model
+    from visualstore.jobs.startup import check_consistency
+
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    install_fake_model(reg.data_dir / "models")
+    folder = folders.create_folder(
+        conn, name="L", path=str(reg.data_dir), role="inbox", compare_scope="all"
+    )
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    kept = files.insert_file(
+        conn, folder_id=folder, directory="", name="kept.jpg", extension_id=ext, size=1, mtime=1
+    )
+    files.set_fingerprint_result(conn, kept, sha1=b"\x02" * 20, state="fingerprinted")
+    lost = files.insert_file(
+        conn, folder_id=folder, directory="", name="lost.jpg", extension_id=ext, size=1, mtime=1
+    )
+    files.set_fingerprint_result(
+        conn, lost, sha1=b"\x03" * 20, state="fingerprinted"
+    )  # no vectors: restored row
+    vec = np.zeros(512, np.float16).tobytes()
+    fingerprints.replace_frames(vconn, kept, MODEL, [(0, 0, vec)])
+    fingerprints.allocate_keys(vconn, kept, MODEL, [0])
+    unknown = b"n" * 16  # a file newer than the restored metadata
+    fingerprints.replace_frames(vconn, unknown, MODEL, [(0, 0, vec)])
+    [ghost_key] = fingerprints.allocate_keys(vconn, unknown, MODEL, [0])
+    report = check_consistency(reg, reg.data_dir / "models")
+    assert report == {"unknown_file_frames": 1, "files_without_vectors": 1, "rebuilds": 1}
+    assert fingerprints.frames_of_file(vconn, unknown, MODEL) == []
+    assert fingerprints.pending_removals(vconn, MODEL) == [ghost_key]
+    queued = jobs_db.list_jobs(conn, state="queued")
+    assert {j["type"] for j in queued} == {"rebuild_index", "fingerprint"}
+    [fpj] = [j for j in queued if j["type"] == "fingerprint"]
+    assert [e["id"] for e in json.loads(fpj["params"])["files"]] == [id_to_str(lost)]
+    assert check_consistency(reg, reg.data_dir / "models") == {
+        "unknown_file_frames": 0,
+        "files_without_vectors": 0,
+        "rebuilds": 0,
+    }

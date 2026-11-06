@@ -34,49 +34,63 @@ def _cancel_foreign_jobs(conn, model_id: str) -> int:
     return cancelled
 
 
+def queue_missing_vectors(conn, vconn, settings: dict, model_dir) -> tuple[int, int]:
+    """Fingerprint jobs for every fingerprinted media file lacking vectors for the active model,
+    skipping files already named by a queued or running fingerprint job. Returns (files, jobs).
+    Shared by the model switch and the start-up consistency check."""
+    spec = get_spec(settings["model.id"], model_dir)
+    model = job_params(spec, model_dir)
+    have = fp.files_with_vectors(vconn, spec.id)
+    in_flight = jobs_db.active_file_ids(conn, "fingerprint")
+    queued_files = jobs_made = 0
+    for folder in folders_db.list_folders(conn):
+        rows = conn.execute(
+            "SELECT f.id, f.directory, f.name, e.media_type FROM file f"
+            " JOIN extension e ON e.id = f.extension_id"
+            " WHERE f.folder_id = ? AND f.state = 'fingerprinted'"
+            " AND e.media_type IN ('image', 'animated', 'video')"
+            " ORDER BY f.directory, f.name",
+            (bytes(folder["id"]),),
+        ).fetchall()
+        pending = [
+            r for r in rows if bytes(r["id"]) not in have and id_to_str(r["id"]) not in in_flight
+        ]
+        priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
+        for start in range(0, len(pending), FINGERPRINT_BATCH):
+            batch = pending[start : start + FINGERPRINT_BATCH]
+            jobs_db.enqueue(
+                conn,
+                type="fingerprint",
+                kind="compute",
+                priority=priority,
+                params={
+                    "files": [
+                        {
+                            "id": id_to_str(r["id"]),
+                            "path": _abs(folder["path"], r["directory"], r["name"]),
+                            "media_type": r["media_type"],
+                        }
+                        for r in batch
+                    ],
+                    "model": model,
+                    "max_pixels": int(settings["media.max_pixels"]),
+                    "frames": sampling_params(settings),
+                    "priority": priority,
+                },
+            )
+            jobs_made += 1
+            queued_files += len(batch)
+    return queued_files, jobs_made
+
+
 def run_model_switch(ctx: IoContext) -> dict:
     spec = get_spec(ctx.params["model_id"], ctx.model_dir)
     resolve_model_path(spec, ctx.model_dir)  # downloads when allowed; raises before any change
-    model = job_params(spec, ctx.model_dir)
     with closing(ctx.open_metadata()) as conn, closing(ctx.open_vectors()) as vconn:
         settings_db.set(conn, "model.id", spec.id)
         cancelled = _cancel_foreign_jobs(conn, spec.id)
-        have = fp.files_with_vectors(vconn, spec.id)
-        queued_files = jobs_made = 0
-        for folder in folders_db.list_folders(conn):
-            rows = conn.execute(
-                "SELECT f.id, f.directory, f.name FROM file f"
-                " JOIN extension e ON e.id = f.extension_id"
-                " WHERE f.folder_id = ? AND f.state = 'fingerprinted' AND e.media_type = 'image'"
-                " ORDER BY f.directory, f.name",
-                (bytes(folder["id"]),),
-            ).fetchall()
-            pending = [r for r in rows if bytes(r["id"]) not in have]
-            priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
-            for start in range(0, len(pending), FINGERPRINT_BATCH):
-                batch = pending[start : start + FINGERPRINT_BATCH]
-                jobs_db.enqueue(
-                    conn,
-                    type="fingerprint",
-                    kind="compute",
-                    priority=priority,
-                    params={
-                        "files": [
-                            {
-                                "id": id_to_str(r["id"]),
-                                "path": _abs(folder["path"], r["directory"], r["name"]),
-                                "media_type": "image",
-                            }
-                            for r in batch
-                        ],
-                        "model": model,
-                        "max_pixels": int(ctx.settings["media.max_pixels"]),
-                        "frames": sampling_params(ctx.settings),
-                        "priority": priority,
-                    },
-                )
-                jobs_made += 1
-                queued_files += len(batch)
+        settings = {**ctx.settings, "model.id": spec.id}
+        queued_files, jobs_made = queue_missing_vectors(conn, vconn, settings, ctx.model_dir)
         rebuild = not (
             jobs_db.has_active(conn, "rebuild_index") or jobs_db.has_active(conn, "build_index")
         )
