@@ -10,6 +10,8 @@ from visualstore.api.ids import parse_id
 from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db import pairs as pairs_db
+from visualstore.db import settings as settings_db
+from visualstore.domain.bands import BANDS, band, band_bounds, thresholds_from
 from visualstore.ids import id_to_str
 from visualstore.jobs.types import PRIORITY_USER
 
@@ -27,6 +29,8 @@ class Judgment(BaseModel):
 def _group_out(conn, row) -> dict:
     d = groups_db.group_to_dict(row)
     d["members"] = [groups_db.member_to_dict(m) for m in groups_db.members(conn, bytes(row["id"]))]
+    t = thresholds_from(settings_db.all(conn))
+    d["band"] = band(row["min_distance"], bool(row["has_identical"]), t)
     return d
 
 
@@ -57,20 +61,33 @@ async def list_groups(
     folder_id: str | None = None,
     has_identical: bool | None = None,
     min_size: int | None = None,
+    band: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
     if status is not None and status not in groups_db.STATUSES:
         raise HTTPException(status_code=400, detail=f"status must be one of {groups_db.STATUSES}")
+    if band is not None and band not in BANDS:
+        raise HTTPException(status_code=400, detail=f"band must be one of {BANDS}")
     conn = get_state(request).registry.conn(name)
+    gt = le = None
+    if band == "identical":
+        has_identical = True
+    elif band is not None:
+        has_identical = False
+        lo, hi = band_bounds(band, thresholds_from(settings_db.all(conn)))
+        gt = None if lo == float("-inf") else lo
+        le = None if hi == float("inf") else hi
     rows = groups_db.list_groups(
         conn,
         status=status,
         folder_id=parse_id(folder_id) if folder_id else None,
         has_identical=has_identical,
         min_size=min_size,
-        limit=min(limit, 200),
-        offset=offset,
+        min_distance_gt=gt,
+        min_distance_le=le,
+        limit=max(1, min(limit, 200)),
+        offset=max(0, offset),
     )
     return [_group_out(conn, r) for r in rows]
 
@@ -78,7 +95,12 @@ async def list_groups(
 @router.get("/groups/counts")
 async def group_counts(request: Request, name: str = Depends(get_profile)) -> dict:
     conn = get_state(request).registry.conn(name)
-    return {**groups_db.count_by_status(conn), "dirty": groups_db.dirty_count(conn)}
+    t = thresholds_from(settings_db.all(conn))
+    return {
+        **groups_db.count_by_status(conn),
+        "dirty": groups_db.dirty_count(conn),
+        "bands": groups_db.count_by_band(conn, t.near_duplicate, t.variant),
+    }
 
 
 @router.get("/groups/{group_id}")

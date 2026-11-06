@@ -140,10 +140,18 @@ def list_groups(
     folder_id: bytes | None = None,
     has_identical: bool | None = None,
     min_size: int | None = None,
+    min_distance_gt: float | None = None,
+    min_distance_le: float | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
     where, params = [], []
+    if min_distance_gt is not None:
+        where.append("g.min_distance > ?")
+        params.append(min_distance_gt)
+    if min_distance_le is not None:
+        where.append("g.min_distance <= ?")
+        params.append(min_distance_le)
     if status is not None:
         where.append("g.status = ?")
         params.append(status)
@@ -172,6 +180,20 @@ def count_by_status(conn: sqlite3.Connection) -> dict[str, int]:
     for row in conn.execute("SELECT status, COUNT(*) AS n FROM file_group GROUP BY status"):
         counts[row["status"]] = row["n"]
     return counts
+
+
+def count_by_band(conn: sqlite3.Connection, near: float, variant: float) -> dict[str, int]:
+    """Open groups per distance band (design §7.6)."""
+    row = conn.execute(
+        "SELECT"
+        " SUM(has_identical = 1) AS identical,"
+        " SUM(has_identical = 0 AND min_distance <= ?) AS near_duplicate,"
+        " SUM(has_identical = 0 AND min_distance > ? AND min_distance <= ?) AS variant,"
+        " SUM(has_identical = 0 AND (min_distance > ? OR min_distance IS NULL)) AS candidate"
+        " FROM file_group WHERE status = 'open'",
+        (near, near, variant, variant),
+    ).fetchone()
+    return {k: int(row[k] or 0) for k in ("identical", "near_duplicate", "variant", "candidate")}
 
 
 def group_to_dict(row: sqlite3.Row) -> dict:

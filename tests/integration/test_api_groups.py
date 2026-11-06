@@ -67,7 +67,8 @@ def test_list_filter_counts_and_detail(client, seeded):
     assert client.get("/api/p/a/groups?status=bogus").status_code == 400
     query = f"folder_id={id_to_str(s['arch'])}&has_identical=true&min_size=3"
     assert len(client.get(f"/api/p/a/groups?{query}").json()) == 1
-    assert client.get("/api/p/a/groups/counts").json() == {
+    counts = client.get("/api/p/a/groups/counts").json()
+    assert {k: counts[k] for k in ("open", "auto_resolved", "resolved", "dismissed", "dirty")} == {
         "open": 1,
         "auto_resolved": 0,
         "resolved": 0,
@@ -140,3 +141,14 @@ def test_file_detail_and_content(client, seeded):
     (s["inbox_dir"] / "b.jpg").unlink()
     assert client.get(f"/api/p/a/files/{fid}/content").status_code == 404
     assert client.get("/api/p/a/files/00000000-0000-0000-0000-000000000000").status_code == 404
+
+
+def test_groups_carry_bands_and_filter_by_band(client, seeded):
+    s = seeded
+    listed = client.get("/api/p/a/groups").json()
+    assert listed[0]["band"] == "identical"
+    assert client.get("/api/p/a/groups?band=identical").json()[0]["id"] == id_to_str(s["gid"])
+    assert client.get("/api/p/a/groups?band=variant").json() == []
+    assert client.get("/api/p/a/groups?band=nope").status_code == 400
+    counts = client.get("/api/p/a/groups/counts").json()
+    assert counts["bands"] == {"identical": 1, "near_duplicate": 0, "variant": 0, "candidate": 0}
