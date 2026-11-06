@@ -1,0 +1,83 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Unauthorized, get, post } from "../api";
+import { setLastProfile } from "../lastProfile";
+import type { Profile } from "../types";
+
+export interface LayoutContext {
+  profiles: Profile[];
+  reloadProfiles: () => Promise<void>;
+}
+
+export function useLayout(): LayoutContext {
+  return useOutletContext<LayoutContext>();
+}
+
+export default function Layout() {
+  const navigate = useNavigate();
+  const { name } = useParams();
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+
+  const reloadProfiles = useCallback(async () => {
+    try {
+      setProfiles(await get<Profile[]>("/api/profiles"));
+    } catch (err) {
+      if (err instanceof Unauthorized) navigate("/login", { replace: true });
+      else throw err;
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    void reloadProfiles();
+  }, [reloadProfiles]);
+
+  async function logout() {
+    await post("/api/auth/logout");
+    navigate("/login", { replace: true });
+  }
+
+  function switchProfile(next: string) {
+    setLastProfile(next);
+    navigate(`/p/${next}/overview`);
+  }
+
+  if (profiles === null) return <p className="muted">Loading…</p>;
+
+  return (
+    <>
+      <header className="topbar">
+        <Link to="/" className="brand">
+          VisualStore
+        </Link>
+        {profiles.length > 1 && (
+          <select
+            aria-label="Profile"
+            value={name ?? ""}
+            onChange={(e) => switchProfile(e.target.value)}
+          >
+            <option value="" disabled>
+              Choose a profile
+            </option>
+            {profiles.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.display_name}
+              </option>
+            ))}
+          </select>
+        )}
+        {profiles.length === 1 && name && (
+          <span className="current">{profiles[0].display_name}</span>
+        )}
+        <nav>
+          <Link to="/profiles">Profiles</Link>
+          <button type="button" className="link" onClick={logout}>
+            Log out
+          </button>
+        </nav>
+      </header>
+      <main>
+        <Outlet context={{ profiles, reloadProfiles } satisfies LayoutContext} />
+      </main>
+    </>
+  );
+}

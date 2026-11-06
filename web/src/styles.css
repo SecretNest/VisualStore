@@ -1,0 +1,29 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.4;
+}
+body { margin: 0; }
+main { max-width: 960px; margin: 0 auto; padding: 1rem; }
+.topbar { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 1rem; border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
+.topbar .brand { font-weight: 700; text-decoration: none; color: inherit; }
+.topbar nav { margin-left: auto; display: flex; gap: 1rem; align-items: center; }
+.topbar .current { font-weight: 600; }
+button.link { background: none; border: none; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; font: inherit; }
+.login { display: grid; place-items: center; min-height: 100vh; }
+.login form { display: grid; gap: 0.75rem; min-width: 18rem; }
+label { display: grid; gap: 0.25rem; }
+form.inline { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; }
+table { width: 100%; border-collapse: collapse; }
+td, th { padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
+td.actions { text-align: right; white-space: nowrap; }
+td.actions button { margin-left: 0.4rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+.card { border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 0.5rem; padding: 0.75rem 1rem; }
+.card h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+.muted { opacity: 0.7; }
+.error { color: #c0392b; }
+.danger { color: #c0392b; }
+.danger-box { border: 1px solid #c0392b; border-radius: 0.5rem; padding: 1rem; display: grid; gap: 0.5rem; margin-top: 1rem; }
+.job-failed td { color: #c0392b; }
+.job-done td:nth-child(2) { color: #27ae60; }
