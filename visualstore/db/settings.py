@@ -11,7 +11,14 @@ DEFAULTS: dict[str, Any] = {
     "backup.metadata.keep": 14,
     "backup.vectors.interval_hours": 168,
     "backup.vectors.keep": 4,
+    "trash.enabled": True,
+    "trash.retention_days": 30,
+    "resolution.auto_execute_identical": True,
+    "scan.interval_hours": 24,  # 0 disables scheduled scans
+    "grouping.group_distance": 0.2,  # provisional until the milestone 3 evaluation
 }
+
+_AT_LEAST_ONE = {"backup.metadata.keep", "backup.vectors.keep", "trash.retention_days"}
 
 
 def get(conn: sqlite3.Connection, key: str) -> Any:
@@ -28,6 +35,10 @@ def set(conn: sqlite3.Connection, key: str, value: Any) -> None:  # noqa: A001 -
         raise TypeError(
             f"setting {key!r} expects {type(DEFAULTS[key]).__name__}, got {type(value).__name__}"
         )
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        minimum = 1 if key in _AT_LEAST_ONE else 0
+        if value < minimum:
+            raise ValueError(f"setting {key!r} must be >= {minimum}")
     with conn:
         conn.execute(
             "INSERT INTO setting (key, value) VALUES (?, ?)"

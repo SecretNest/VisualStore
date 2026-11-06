@@ -39,3 +39,20 @@ def test_value_must_match_default_type(conn):
         settings.set(conn, "backup.metadata.keep", "14")
     with pytest.raises(TypeError):
         settings.set(conn, "backup.metadata.keep", True)  # bool is not accepted for an int
+
+
+def test_milestone_2_defaults_and_ranges(conn):
+    assert settings.get(conn, "trash.enabled") is True
+    assert settings.get(conn, "trash.retention_days") == 30
+    assert settings.get(conn, "resolution.auto_execute_identical") is True
+    assert settings.get(conn, "scan.interval_hours") == 24
+    assert settings.get(conn, "grouping.group_distance") == 0.2
+    settings.set(conn, "scan.interval_hours", 0)  # 0 = disabled is allowed
+    with pytest.raises(ValueError):
+        settings.set(conn, "trash.retention_days", 0)
+    with pytest.raises(ValueError):
+        settings.set(conn, "backup.metadata.keep", 0)
+    with pytest.raises(ValueError):
+        settings.set(conn, "grouping.group_distance", -0.1)
+    settings.set(conn, "grouping.group_distance", 0.35)
+    assert settings.get(conn, "grouping.group_distance") == 0.35

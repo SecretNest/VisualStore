@@ -68,6 +68,24 @@ def latest_of_type(conn: sqlite3.Connection, type: str) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def latest_with_param(conn: sqlite3.Connection, type: str, key: str, value) -> sqlite3.Row | None:
+    """Newest job of a type whose params JSON has key == value (key is a code literal)."""
+    return conn.execute(
+        f"SELECT * FROM job WHERE type = ? AND json_extract(params, '$.{key}') = ?"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (type, value),
+    ).fetchone()
+
+
+def has_active_with_param(conn: sqlite3.Connection, type: str, key: str, value) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM job WHERE type = ? AND state IN ('queued', 'running')"
+        f" AND json_extract(params, '$.{key}') = ? LIMIT 1",
+        (type, value),
+    ).fetchone()
+    return row is not None
+
+
 def has_active(conn: sqlite3.Connection, type: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM job WHERE type = ? AND state IN ('queued', 'running') LIMIT 1", (type,)

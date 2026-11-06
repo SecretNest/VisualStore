@@ -26,6 +26,7 @@ from visualstore.config import Config
 from visualstore.jobs.compute.pool import ComputePool
 from visualstore.jobs.io import IO_HANDLERS
 from visualstore.jobs.io.backup import plan_backups
+from visualstore.jobs.io.planners import plan_purge, plan_scans
 from visualstore.jobs.scheduler import Scheduler
 from visualstore.profiles import ProfileError, ProfileNotFound, ProfileRegistry
 
@@ -62,7 +63,11 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
             pool,
             io_handlers=IO_HANDLERS,
             backup_dir=config.backup_dir,
-            planners=[partial(plan_backups, backup_dir=config.backup_dir)],
+            planners=[
+                partial(plan_backups, backup_dir=config.backup_dir),
+                plan_scans,
+                plan_purge,
+            ],
         )
         scheduler.requeue_interrupted()
         await scheduler.start()
