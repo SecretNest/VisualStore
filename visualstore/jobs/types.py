@@ -14,6 +14,7 @@ KIND_OF: dict[str, str] = {
     "match": "compute",
     "build_index": "compute",
     "rebuild_index": "io",
+    "eval": "io",
     "scan": "io",
     "regroup": "io",
     "apply_action": "io",
