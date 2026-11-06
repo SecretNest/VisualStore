@@ -24,6 +24,7 @@ visualstore/static/
 *.tsbuildinfo
 test-results/
 playwright-report/
+web/e2e/.media-path
 blob-report/
 
 # --- Runtime data (never commit library data) ---

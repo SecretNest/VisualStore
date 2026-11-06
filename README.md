@@ -4,9 +4,10 @@ Self-hosted deduplication for large image, animated-image, and video libraries. 
 
 VisualStore is the successor to [ImageStore](https://github.com/SecretNest/ImageStore), a Windows PowerShell module that found byte-identical files with SHA-1 and visually similar images with pHash. VisualStore keeps ImageStore's domain rules and can import its database, but is a rewrite: cross-platform, browser-operated, and with a similarity engine that treats stills, animated images, and video frames in one vector space.
 
-> **Status: milestone 1 (skeleton) complete.** The container runs with login, profiles, the job
-> scheduler, scheduled backups and the browser shell. Nothing scans or compares media yet; that is
-> milestones 2 and 3. See the [roadmap](docs/design/11-roadmap.md).
+> **Status: milestone 2 complete.** VisualStore replaces ImageStore's same-file workflow: Folders,
+> scanning with move detection, SHA-1 groups with preselected decisions, trash with restore, archive
+> move and v1 import all run from the browser. Visual similarity arrives in milestone 3. See the
+> [roadmap](docs/design/11-roadmap.md).
 
 ## What it does
 
