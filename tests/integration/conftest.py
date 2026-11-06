@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -18,6 +20,18 @@ def config(tmp_path):
         compute_processes=1,
         port=8080,
         model_dir=tmp_path / "models",
+    )
+
+
+def make_config(root: Path, model_dir: Path) -> Config:
+    """A Config for an arbitrary data root: the rehearsal tests start the app more than once."""
+    return Config(
+        data_dir=root / "data",
+        backup_dir=root / "backups",
+        password=PASSWORD,
+        compute_processes=1,
+        port=8080,
+        model_dir=model_dir,
     )
 
 
