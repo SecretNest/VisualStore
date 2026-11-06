@@ -47,6 +47,7 @@ class ComputeBackend(Protocol):
 
     def submit(self, request: ComputeRequest) -> None: ...
     def poll(self) -> list[ComputeMessage]: ...
+    def reap(self) -> list[int]: ...
     def alive_count(self) -> int: ...
 
 
@@ -69,6 +70,7 @@ class Scheduler:
         self.poll_interval = poll_interval
         self.plan_interval = plan_interval
         self.in_flight: dict[str, str] = {}  # compute job id (str) -> profile name
+        self.in_flight_pid: dict[str, int] = {}  # compute job id (str) -> pid of its child
         self._io_task: asyncio.Task | None = None
         self._loop_task: asyncio.Task | None = None
         self._last_plan: float | None = None
@@ -152,12 +154,16 @@ class Scheduler:
             )
 
     def _drain_pool(self) -> None:
+        self._fail_jobs_of_dead_children()
         for msg in self.pool.poll():
             profile = self.in_flight.get(msg.job_id)
             if profile is None:
                 continue
+            if msg.kind == "started":
+                self.in_flight_pid[msg.job_id] = int(msg.payload.get("pid", 0))
+                continue
             if msg.kind != "progress":
-                self.in_flight.pop(msg.job_id, None)
+                self._forget(msg.job_id)
             try:
                 conn = self.registry.conn(profile)
             except ProfileNotFound:
@@ -169,6 +175,30 @@ class Scheduler:
                 self._finish(conn, job_id, msg.payload)
             else:
                 jobs_db.record_failure(conn, job_id, msg.payload.get("error", "unknown error"))
+
+    def _forget(self, job_id: str) -> None:
+        self.in_flight.pop(job_id, None)
+        self.in_flight_pid.pop(job_id, None)
+
+    def _fail_jobs_of_dead_children(self) -> None:
+        """A child that died (OOM, crash) never answers; count the attempt and move on.
+        The pool has already respawned the child, so the slot is usable again."""
+        dead = set(self.pool.reap())
+        if not dead:
+            return
+        for job_id, pid in list(self.in_flight_pid.items()):
+            if pid not in dead:
+                continue
+            profile = self.in_flight.get(job_id)
+            self._forget(job_id)
+            log.warning("compute worker %d died while running job %s", pid, job_id)
+            if profile is None:
+                continue
+            try:
+                conn = self.registry.conn(profile)
+            except ProfileNotFound:
+                continue
+            jobs_db.record_failure(conn, id_from_str(job_id), f"compute worker died (pid {pid})")
 
     @staticmethod
     def _finish(conn: sqlite3.Connection, job_id: bytes, result: dict) -> None:

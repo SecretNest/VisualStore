@@ -36,8 +36,8 @@ def test_ping_round_trip_reports_progress_then_result(pool):
     )
     msgs = collect(pool, "j1")
     kinds = [m.kind for m in msgs]
-    assert kinds == ["progress", "progress", "progress", "result"]
-    assert msgs[0].payload == {"done": 1, "total": 3, "message": "ping"}
+    assert kinds == ["started", "progress", "progress", "progress", "result"]
+    assert msgs[1].payload == {"done": 1, "total": 3, "message": "ping"}
     assert msgs[-1].payload["pong"] == "hi"
     assert msgs[-1].payload["pid"] != os.getpid()  # ran in a child, not in this process
     assert msgs[-1].profile == "a"
@@ -89,3 +89,27 @@ def test_stop_terminates_children():
     assert p.alive_count() == 1
     p.stop()
     assert p.alive_count() == 0
+
+
+def test_reap_replaces_a_killed_child_and_reports_its_pid(pool):
+    victim = pool.pids()[0]
+    os.kill(victim, signal.SIGKILL)
+    deadline = time.monotonic() + 5
+    dead: list[int] = []
+    while not dead and time.monotonic() < deadline:
+        dead = pool.reap()
+        time.sleep(0.05)
+    assert dead == [victim]
+    assert pool.alive_count() == 2
+    assert victim not in pool.pids()
+    assert pool.reap() == []
+    # the replacement child does real work
+    pool.submit(ComputeRequest(job_id="r1", profile="a", type="ping", params={"count": 1}))
+    assert collect(pool, "r1")[-1].kind == "result"
+
+
+def test_worker_announces_start_with_its_pid(pool):
+    pool.submit(ComputeRequest(job_id="s1", profile="a", type="ping", params={"count": 1}))
+    msgs = collect(pool, "s1")
+    assert msgs[0].kind == "started"
+    assert msgs[0].payload["pid"] in pool.pids()

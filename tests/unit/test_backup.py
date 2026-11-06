@@ -68,13 +68,28 @@ def test_backup_taken_during_live_writes_is_complete_and_consistent(registry, tm
 
 
 def test_corrupt_copy_is_deleted_and_reported(registry, tmp_path, monkeypatch):
-    def write_garbage(src, dest):
-        dest.write_bytes(b"this is not a database" * 100)
+    def write_garbage(src, tmp):
+        tmp.write_bytes(b"this is not a database" * 100)
 
-    monkeypatch.setattr(backup, "_copy_sqlite", write_garbage)
+    monkeypatch.setattr(backup, "_online_backup", write_garbage)
     with pytest.raises(backup.BackupError, match="integrity"):
         backup.run_backup(make_ctx(registry, tmp_path / "bk", params={"targets": ["metadata"]}))
-    assert list((tmp_path / "bk" / "a").glob("*.db")) == []
+    assert list((tmp_path / "bk" / "a").iterdir()) == []  # neither a .db nor a leftover .tmp
+
+
+def test_bad_global_source_keeps_previous_global_copy(registry, tmp_path):
+    """Every copy is verified before it replaces anything, global.db included."""
+    (tmp_path / "bk").mkdir()
+    (tmp_path / "bk" / "global.db").write_bytes(b"previous good copy")
+    garbage = tmp_path / "garbage.db"
+    garbage.write_bytes(b"not sqlite" * 50)
+    ctx = make_ctx(registry, tmp_path / "bk", params={"targets": ["metadata"]})
+    ctx.global_db_path = garbage
+    with pytest.raises(backup.BackupError):
+        backup.run_backup(ctx)
+    assert (tmp_path / "bk" / "global.db").read_bytes() == b"previous good copy"
+    assert list((tmp_path / "bk").glob("*.tmp")) == []
+    assert len(list((tmp_path / "bk" / "a").glob("visualstore-*.db"))) == 1  # metadata was fine
 
 
 def test_retention_keeps_newest_n_per_target(registry, tmp_path):
@@ -138,3 +153,15 @@ def test_plan_backups_enqueues_one_maintenance_job_per_profile(registry, tmp_pat
         [row] = jobs_db.list_jobs(registry.conn(name))
         assert row["type"] == "backup" and row["kind"] == "io" and row["priority"] == 0
         assert jobs_db.to_dict(row)["params"] == {"targets": ["metadata", "vectors"]}
+
+
+def test_plan_backups_backs_off_after_a_recent_failure(registry, tmp_path):
+    conn = registry.conn("a")
+    job_id = jobs_db.enqueue(conn, type="backup", kind="io")
+    jobs_db.mark_running(conn, job_id)
+    jobs_db.mark_failed(conn, job_id, "disk full")
+    assert backup.plan_backups(registry, tmp_path / "bk") == 0  # not every minute, forever
+
+    two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat(timespec="seconds")
+    conn.execute("UPDATE job SET finished_at = ? WHERE id = ?", (two_hours_ago, job_id))
+    assert backup.plan_backups(registry, tmp_path / "bk") == 1

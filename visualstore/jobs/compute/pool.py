@@ -24,17 +24,32 @@ class ComputePool:
     def start(self) -> None:
         self._in = self._ctx.Queue()
         self._out = self._ctx.Queue()
-        self._procs = [
-            self._ctx.Process(
-                target=worker_main,
-                args=(self._in, self._out),
-                name=f"visualstore-compute-{i}",
-                daemon=True,
-            )
-            for i in range(self.size)
-        ]
+        self._procs = [self._spawn(i) for i in range(self.size)]
         for proc in self._procs:
             proc.start()
+
+    def _spawn(self, index: int):
+        return self._ctx.Process(
+            target=worker_main,
+            args=(self._in, self._out),
+            name=f"visualstore-compute-{index}",
+            daemon=True,
+        )
+
+    def reap(self) -> list[int]:
+        """Replace children that died; return their pids so the caller can fail their jobs."""
+        if self._in is None:
+            return []
+        dead: list[int] = []
+        for index, proc in enumerate(self._procs):
+            if proc.is_alive():
+                continue
+            dead.append(proc.pid)
+            proc.join(0)
+            replacement = self._spawn(index)
+            replacement.start()
+            self._procs[index] = replacement
+        return dead
 
     def stop(self, timeout: float = 5.0) -> None:
         if self._in is None:

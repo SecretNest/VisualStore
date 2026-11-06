@@ -13,6 +13,11 @@ class FakePool:
         self.size = size
         self.submitted = []
         self.messages = []
+        self.dead = []
+
+    def reap(self):
+        out, self.dead = self.dead, []
+        return out
 
     def submit(self, request):
         self.submitted.append(request)
@@ -197,3 +202,21 @@ async def test_start_and_stop_run_the_loop(registry, scheduler):
         await asyncio.sleep(0.01)
     await scheduler.stop()
     assert jobs_db.get(conn, job_id)["state"] == "done"
+
+
+async def test_job_held_by_a_dead_worker_is_requeued(registry, scheduler, pool):
+    conn = registry.conn("a")
+    job_id = jobs_db.enqueue(conn, type="ping", kind="compute")
+    await scheduler.tick()
+    req = pool.submitted[0]
+    pool.messages.append(ComputeMessage(req.job_id, "a", "started", {"pid": 4242}))
+    await scheduler.tick()
+    assert scheduler.in_flight_pid[req.job_id] == 4242
+
+    pool.dead = [4242]
+    await scheduler.tick()
+    row = jobs_db.get(conn, job_id)
+    assert row["attempts"] == 1
+    assert "compute worker died" in row["error"]
+    assert row["state"] == "running" and len(pool.submitted) == 2  # requeued and re-dispatched
+    assert req.job_id not in scheduler.in_flight_pid

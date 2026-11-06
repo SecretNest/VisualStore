@@ -136,3 +136,12 @@ def test_every_known_type_has_a_kind():
     assert KIND_OF["backup"] == "io"
     assert KIND_OF["ping"] == "compute"
     assert set(KIND_OF.values()) <= {"io", "compute"}
+
+
+def test_latest_of_type_returns_newest_or_none(conn):
+    assert jobs.latest_of_type(conn, "backup") is None
+    old = jobs.enqueue(conn, type="backup", kind="io")
+    conn.execute("UPDATE job SET created_at = '2026-01-01T00:00:00+00:00' WHERE id = ?", (old,))
+    new = jobs.enqueue(conn, type="backup", kind="io")
+    jobs.enqueue(conn, type="ping", kind="compute")
+    assert jobs.latest_of_type(conn, "backup")["id"] == new

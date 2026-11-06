@@ -62,6 +62,12 @@ def next_queued(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def latest_of_type(conn: sqlite3.Connection, type: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM job WHERE type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", (type,)
+    ).fetchone()
+
+
 def has_active(conn: sqlite3.Connection, type: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM job WHERE type = ? AND state IN ('queued', 'running') LIMIT 1", (type,)
@@ -70,10 +76,10 @@ def has_active(conn: sqlite3.Connection, type: str) -> bool:
 
 
 def mark_running(conn: sqlite3.Connection, job_id: bytes) -> None:
+    """The previous attempt's error is kept so a retrying job still shows why it failed."""
     with conn:
         conn.execute(
-            "UPDATE job SET state = 'running', started_at = ?, error = NULL WHERE id = ?",
-            (now_iso(), job_id),
+            "UPDATE job SET state = 'running', started_at = ? WHERE id = ?", (now_iso(), job_id)
         )
 
 

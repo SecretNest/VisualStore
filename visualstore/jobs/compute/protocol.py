@@ -17,5 +17,5 @@ class ComputeRequest:
 class ComputeMessage:
     job_id: str
     profile: str
-    kind: str  # "progress" | "result" | "error"
+    kind: str  # "started" | "progress" | "result" | "error"
     payload: dict

@@ -10,6 +10,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from visualstore.clock import parse_iso
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.jobs.scheduler import IoContext
@@ -17,6 +18,7 @@ from visualstore.jobs.types import PRIORITY_MAINTENANCE
 from visualstore.profiles import ProfileRegistry
 
 TARGETS = ("metadata", "vectors")
+RETRY_BACKOFF = timedelta(hours=1)  # after a failed backup, wait this long before planning again
 PREFIX = {"metadata": "visualstore", "vectors": "vectors"}
 _STAMP = "%Y%m%dT%H%M%SZ"
 
@@ -87,9 +89,8 @@ def latest_backup_time(backup_dir: Path, profile: str, target: str) -> datetime 
 # -- the job ---------------------------------------------------------------------------
 
 
-def _copy_sqlite(src: Path, dest: Path) -> None:
-    """Online backup into dest via a temp file; the result includes everything in the WAL."""
-    tmp = dest.with_suffix(".tmp")
+def _online_backup(src: Path, tmp: Path) -> None:
+    """SQLite online backup API: a consistent copy that includes everything still in the WAL."""
     source = sqlite3.connect(src)
     try:
         target = sqlite3.connect(tmp)
@@ -99,10 +100,9 @@ def _copy_sqlite(src: Path, dest: Path) -> None:
             target.close()
     finally:
         source.close()
-    tmp.replace(dest)
 
 
-def _verify(path: Path) -> None:
+def _verify(path: Path, label: str) -> None:
     try:
         conn = sqlite3.connect(path)
         try:
@@ -113,8 +113,23 @@ def _verify(path: Path) -> None:
     except sqlite3.DatabaseError:
         ok = False
     if not ok:
-        path.unlink(missing_ok=True)
-        raise BackupError(f"integrity check failed on backup copy {path.name}; copy deleted")
+        raise BackupError(f"integrity check failed on backup copy {label}; copy deleted")
+
+
+def _copy_sqlite(src: Path, dest: Path) -> None:
+    """Copy into a temp file, verify it, and only then replace dest. A bad copy never
+    overwrites a good one and never lingers on disk."""
+    tmp = dest.with_suffix(".tmp")
+    try:
+        _online_backup(src, tmp)
+        _verify(tmp, dest.name)
+    except BackupError:
+        tmp.unlink(missing_ok=True)
+        raise
+    except (sqlite3.Error, OSError) as exc:
+        tmp.unlink(missing_ok=True)
+        raise BackupError(f"could not back up {src.name}: {exc}") from exc
+    tmp.replace(dest)
 
 
 def _prune(directory: Path, target: str, keep: int) -> list[Path]:
@@ -139,7 +154,6 @@ def run_backup(ctx: IoContext) -> dict:
     for i, target in enumerate(targets, start=1):
         dest = dest_dir / backup_file_name(target, now)
         _copy_sqlite(sources[target], dest)
-        _verify(dest)
         _prune(dest_dir, target, int(ctx.settings[f"backup.{target}.keep"]))
         written.append(str(dest))
         ctx.report({"done": i, "total": total, "message": f"backed up {target}"})
@@ -162,6 +176,13 @@ def due_targets(backup_dir: Path, profile: str, settings: dict, now: datetime) -
     return due
 
 
+def _failed_recently(conn, now: datetime) -> bool:
+    last = jobs_db.latest_of_type(conn, "backup")
+    if last is None or last["state"] != "failed" or not last["finished_at"]:
+        return False
+    return now - parse_iso(last["finished_at"]) < RETRY_BACKOFF
+
+
 def plan_backups(registry: ProfileRegistry, backup_dir: Path, now: datetime | None = None) -> int:
     """Enqueue a backup job for every profile with an overdue target. Returns jobs enqueued."""
     now = now or datetime.now(UTC)
@@ -169,6 +190,8 @@ def plan_backups(registry: ProfileRegistry, backup_dir: Path, now: datetime | No
     for name in registry.names():
         conn = registry.conn(name)
         if jobs_db.has_active(conn, "backup"):
+            continue
+        if _failed_recently(conn, now):
             continue
         targets = due_targets(backup_dir, name, settings_db.all(conn), now)
         if not targets:

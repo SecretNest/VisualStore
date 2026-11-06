@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from visualstore.jobs.compute.handlers import HANDLERS
 from visualstore.jobs.compute.protocol import ComputeMessage, ComputeRequest
 
@@ -11,6 +13,8 @@ def worker_main(in_q, out_q) -> None:
         request: ComputeRequest | None = in_q.get()
         if request is None:  # shutdown sentinel
             return
+        # Announce which child holds the job, so the server can fail it if this child dies.
+        out_q.put(ComputeMessage(request.job_id, request.profile, "started", {"pid": os.getpid()}))
 
         def report(progress: dict, _req: ComputeRequest = request) -> None:
             out_q.put(ComputeMessage(_req.job_id, _req.profile, "progress", progress))
