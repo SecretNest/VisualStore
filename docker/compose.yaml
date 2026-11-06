@@ -1,4 +1,5 @@
-# Example deployment (design §9.4). Copy next to a .env file holding VISUALSTORE_PASSWORD.
+# Example deployment (design §9.4). Run `docker compose up -d` from this directory with a .env
+# file holding VISUALSTORE_PASSWORD (see ../.env.example).
 # Use the same container-side media paths on the initialisation machine and on the NAS.
 services:
   visualstore:
@@ -10,6 +11,8 @@ services:
     environment:
       VISUALSTORE_PASSWORD: "${VISUALSTORE_PASSWORD}"
       # VISUALSTORE_COMPUTE_PROCESSES: "2"   # lower on a NAS to leave CPU for other services
+      # FORWARDED_ALLOW_IPS: "172.18.0.2"    # your reverse proxy's address, so rate limiting
+      #                                      # sees real client addresses (uvicorn setting)
     volumes:
       - ./data:/data          # must be a local disk, never a network share
       - ./backups:/backups

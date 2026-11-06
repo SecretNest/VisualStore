@@ -20,6 +20,9 @@ The design leaves a few implementation-level options open ([02 §4](../design/02
 - **Version source**: `[project].version` in `pyproject.toml`; the publish workflow reads it when no version is typed into the dispatch form.
 - **CI**: on every push and pull request run ruff, pytest, the frontend type-check, vitest and the Vite build, and build the image for amd64 without pushing.
 
+- **Threading rule for SQLite**: every connection owned by the `ProfileRegistry` is used only on the event-loop thread. API handlers and FastAPI dependencies are therefore `async def` (sync ones would run in a threadpool and share connections with the scheduler); io job handlers run in a worker thread and open their own connections from paths. A structural test (`tests/integration/test_api_async.py`) pins this.
+- **Dead compute children**: a child announces which job it holds; the pool respawns dead children and the scheduler counts a failed attempt for the job they held, so an OOM during inference neither loses a pool slot nor leaves a job `running` forever.
+
 ## Consequences
 
 - Any later need for an ORM or Alembic is a deliberate change, not a drift; this record would be superseded.

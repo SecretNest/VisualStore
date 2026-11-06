@@ -51,11 +51,38 @@ Everything else is a per-profile setting in the UI. A compose example is in [Ope
 ## Running
 
 ```bash
-cp .env.example .env            # set VISUALSTORE_PASSWORD
-docker compose -f docker/compose.yaml up -d
+cd docker
+cp ../.env.example .env          # set VISUALSTORE_PASSWORD in docker/.env
+docker compose up -d             # data in docker/data, backups in docker/backups
 ```
 
-Images: `ghcr.io/secretnest/visualstore` and the same path under the Alibaba Cloud registry.
+Compose resolves `.env` and the relative volume paths against the directory that holds
+`compose.yaml`, so run it from `docker/` (or copy `compose.yaml` and `.env` to a directory of
+your own). Edit the media volumes in `compose.yaml` first; keep the container-side paths the same
+on every machine that will host the data directory.
+
+Images: `ghcr.io/secretnest/visualstore` and the same `secretnest/visualstore` path on Alibaba
+Cloud Container Registry.
+
+**Behind a reverse proxy.** HTTPS is the proxy's job; VisualStore speaks plain HTTP and its
+session cookie is not marked `Secure`, so terminate TLS in front of it and do not expose port
+8080 directly. Set `FORWARDED_ALLOW_IPS` to the proxy's address (uvicorn reads it from the
+environment) so that login rate limiting sees each client's own address instead of the proxy's.
+Without it, five wrong passwords from anyone lock everyone out for a minute.
+
+**Restoring a backup.** Backups are plain SQLite files under `/backups/<profile>/`
+(`visualstore-<timestamp>.db` is the metadata database, `vectors-<timestamp>.db` the vectors) and
+`/backups/global.db`. To restore one profile:
+
+1. Stop the container.
+2. Copy the chosen `visualstore-<timestamp>.db` over `/data/profiles/<profile>/visualstore.db`,
+   and, if needed, `vectors-<timestamp>.db` over `vectors.db` in the same directory.
+3. Start the container. The search index and thumbnails are derived data and are rebuilt when
+   they no longer match the restored databases. Other profiles are unaffected.
+
+Moving the whole installation to another machine is not a restore: stop the container and copy
+the entire `/data` directory as-is (see [Operations](docs/design/07-operations.md#91-backup)).
+
 Development: `uv sync`, `cd web && npm ci && npm run build`, then
 `VISUALSTORE_PASSWORD=pw VISUALSTORE_DATA_DIR=./data VISUALSTORE_BACKUP_DIR=./backups uv run python -m visualstore`.
 Tests: `uv run pytest`, `cd web && npm test`, `cd web && npm run e2e`.
