@@ -1,0 +1,91 @@
+import json
+
+import numpy as np
+
+from tests.unit.sinkctx import make_sink_ctx
+from tests.unit.test_rebuild_and_startup import ctx_for, seed_vectors, world  # noqa: F401
+from visualstore.db import fingerprints
+from visualstore.db import jobs as jobs_db
+from visualstore.db import settings as settings_db
+from visualstore.index.usearch_index import inspect
+from visualstore.jobs.compute.handlers import build_index, match
+from visualstore.jobs.io.rebuild import run_rebuild_index
+from visualstore.jobs.results import sink_build_index
+from visualstore.jobs.startup import index_is_stale
+
+MODEL = "sscd-resnet50-512-v1"
+
+
+def test_i8_and_pca_rebuild_record_options_and_keep_stored_vectors(world):  # noqa: F811
+    """Review Focus 1."""
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    seed_vectors(reg, 40)
+    before = [bytes(r["vector"]) for rows in fingerprints.iter_vectors(vconn, MODEL) for r in rows]
+    settings_db.set(conn, "index.quantization", "i8")
+    settings_db.set(conn, "index.pca_dims", 32)
+    run_rebuild_index(ctx_for(reg))
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    params = json.loads(job["params"])
+    assert params["index"] == {
+        "quantization": "i8",
+        "pca_dims": 32,
+        "pca_path": str(reg.paths("a").root / "pca.npz"),
+        "index_dim": 32,
+    }
+    result = build_index(params, lambda p: None)
+    sink_build_index(make_sink_ctx(reg, "a", params, result))
+    meta = inspect(reg.paths("a").index)
+    assert meta["dimensions"] == 32 and meta["dtype"] == "i8" and meta["count"] == 40
+    assert (
+        fingerprints.get_meta(vconn, "quantization") == "i8"
+        and fingerprints.get_meta(vconn, "pca_dims") == "32"
+    )
+    after = [bytes(r["vector"]) for rows in fingerprints.iter_vectors(vconn, MODEL) for r in rows]
+    assert after == before  # stored vectors untouched
+    assert not index_is_stale(reg, "a")
+    settings_db.set(conn, "index.pca_dims", 0)
+    assert index_is_stale(reg, "a")  # options differ from the index: rebuild needed
+
+
+def test_match_projects_entries_and_queries_with_the_same_file(world):  # noqa: F811
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    ids = seed_vectors(reg, 30)
+    settings_db.set(conn, "index.pca_dims", 16)
+    run_rebuild_index(ctx_for(reg))
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    params = json.loads(job["params"])
+    sink_build_index(make_sink_ctx(reg, "a", params, build_index(params, lambda p: None)))
+    # a new vector equal to file 0's vector must find file 0's key at distance ~0
+    row = fingerprints.frames_of_file(vconn, ids[0], MODEL)[0]
+    vec = np.frombuffer(bytes(row["vector"]), dtype=np.float16).astype(np.float32)
+    [new_key] = fingerprints.allocate_keys(vconn, b"z" * 16, MODEL, [0])
+    import base64
+
+    hits = match(
+        {
+            "model": {
+                "id": MODEL,
+                "dim": 512,
+                "path": "",
+                "input_size": 288,
+                "mean": [0, 0, 0],
+                "std": [1, 1, 1],
+            },
+            "index_path": str(reg.paths("a").index),
+            "index": params["index"],
+            "entries": [
+                {
+                    "seq": new_key,
+                    "vector": base64.b64encode(vec.astype(np.float16).tobytes()).decode(),
+                }
+            ],
+            "remove": [],
+            "top_k": 5,
+            "candidate_distance": 0.5,
+        },
+        lambda p: None,
+    )
+    key0 = fingerprints.allocate_keys(vconn, ids[0], MODEL, [0])[0]
+    assert any(h == key0 and d < 0.01 for _, h, d in hits["hits"])

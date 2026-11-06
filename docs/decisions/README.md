@@ -15,3 +15,4 @@ Records are never rewritten to say something different. A changed decision gets 
 | [0005](0005-m3-implementation-choices.md) | Milestone 3 implementation choices: model download, plain usearch keys, scope in the sink, eval as io | accepted |
 | [0006](0006-m4-implementation-choices.md) | Milestone 4 implementation choices: comparison modes, neighbours in detail, cached previews, bulk job, move/rename as actions | accepted |
 | [0007](0007-m5-implementation-choices.md) | Milestone 5 implementation choices: frames over a pipe, ffprobe for timing, pyvips pages, APNG via ffmpeg, retired frame keys | accepted |
+| [0008](0008-m6-implementation-choices.md) | Milestone 6 implementation choices: f16 default with i8, per-profile PCA, PUID/PGID entrypoint, heartbeat health, weekly maintenance, retry backoff | accepted |

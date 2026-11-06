@@ -25,6 +25,9 @@ DEFAULTS: dict[str, Any] = {
     "bulk.confirm_threshold": 100,
     "frames.max_per_file": 8,
     "media.ffmpeg_timeout_s": 120,
+    "index.quantization": "f16",  # f16 | i8 (ADR-0008)
+    "index.pca_dims": 0,  # 0 = off; otherwise the index dimension after PCA
+    "maintenance.vacuum_free_ratio": 0.2,
 }
 
 _AT_LEAST_ONE = {
@@ -54,6 +57,8 @@ def set(conn: sqlite3.Connection, key: str, value: Any) -> None:  # noqa: A001 -
         )
     if isinstance(value, str) and not value.strip():
         raise ValueError(f"setting {key!r} must not be empty")
+    if key == "index.quantization" and value not in ("f16", "i8"):
+        raise ValueError("setting 'index.quantization' must be 'f16' or 'i8'")
     if isinstance(value, int | float) and not isinstance(value, bool):
         minimum = 1 if key in _AT_LEAST_ONE else 0
         if value < minimum:

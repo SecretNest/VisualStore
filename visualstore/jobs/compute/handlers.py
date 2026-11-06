@@ -176,8 +176,9 @@ def match(params: dict, report: Report) -> dict:
 
     model = params["model"]
     dim = int(model["dim"])
+    options = _index_options(params, dim)
     index_path = Path(params["index_path"])
-    index = VectorIndex.open_or_create(index_path, dim)
+    index = VectorIndex.open_or_create(index_path, options["index_dim"], options["quantization"])
     removed = index.remove([int(s) for s in params.get("remove", [])])
     entries = params.get("entries", [])
     keys = [int(e["seq"]) for e in entries]
@@ -185,7 +186,7 @@ def match(params: dict, report: Report) -> dict:
         np.frombuffer(base64.b64decode(e["vector"]), dtype=np.float16).astype(np.float32)
         for e in entries
     ]
-    vectors = np.array(decoded, dtype=np.float32).reshape(len(entries), dim)
+    vectors = _projected(np.array(decoded, dtype=np.float32).reshape(len(entries), dim), options)
     index.add(keys, vectors)
     index.save(index_path)
     limit = float(params.get("candidate_distance", 0.5))
@@ -200,14 +201,34 @@ def match(params: dict, report: Report) -> dict:
     return {"hits": hits, "added": len(keys), "removed": removed, "count": index.count}
 
 
+def _index_options(params: dict, model_dim: int) -> dict:
+    options = params.get("index") or {}
+    return {
+        "quantization": str(options.get("quantization", "f16")),
+        "pca_dims": int(options.get("pca_dims", 0)),
+        "pca_path": options.get("pca_path"),
+        "index_dim": int(options.get("index_dim", model_dim)),
+    }
+
+
+def _projected(vectors: np.ndarray, options: dict) -> np.ndarray:
+    """Model vectors → index vectors: identity, or the profile's PCA projection (ADR-0008)."""
+    if not options.get("pca_path") or vectors.shape[0] == 0:
+        return vectors.reshape(vectors.shape[0], options["index_dim"])
+    from visualstore.index import pca
+
+    return pca.project(pca.load(options["pca_path"]), vectors)
+
+
 def build_index(params: dict, report: Report) -> dict:
     """Build a fresh index from an exported (keys, vectors) file and replace the profile's."""
     from visualstore.index.usearch_index import VectorIndex
 
     data = np.load(params["export_path"])
     keys = data["keys"].astype(np.uint64)
-    vectors = data["vectors"].astype(np.float32)
-    index = VectorIndex.empty(int(params["dim"]))
+    options = _index_options(params, int(params["dim"]))
+    vectors = _projected(data["vectors"].astype(np.float32), options)
+    index = VectorIndex.empty(options["index_dim"], options["quantization"])
     step = 4096
     for start in range(0, len(keys), step):
         index.add(keys[start : start + step].tolist(), vectors[start : start + step])

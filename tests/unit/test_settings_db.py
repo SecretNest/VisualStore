@@ -83,3 +83,12 @@ def test_milestone_5_defaults_and_ranges(conn):
         settings.set(conn, "media.ffmpeg_timeout_s", 0)
     settings.set(conn, "frames.max_per_file", 3)
     assert settings.get(conn, "frames.max_per_file") == 3
+
+
+def test_milestone_6_index_settings(conn):
+    assert settings.get(conn, "index.quantization") == "f16"
+    assert settings.get(conn, "index.pca_dims") == 0
+    settings.set(conn, "index.quantization", "i8")
+    with pytest.raises(ValueError):
+        settings.set(conn, "index.quantization", "f32")
+    assert settings.get(conn, "maintenance.vacuum_free_ratio") == 0.2

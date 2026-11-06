@@ -8,6 +8,7 @@ from visualstore.db import fingerprints as fp
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.index.usearch_index import IndexError_, inspect
+from visualstore.jobs.results import index_options
 from visualstore.jobs.types import PRIORITY_INBOX
 from visualstore.models.registry import ModelError, get_spec
 from visualstore.profiles import ProfileRegistry
@@ -23,11 +24,20 @@ def index_is_stale(registry: ProfileRegistry, name: str, model_dir: Path | None 
         return False
     if fp.get_meta(vconn, "model_id") != spec.id:
         return True
+    wanted = index_options(settings_db.all(conn), registry.paths(name), spec.dim)
+    if (fp.get_meta(vconn, "quantization") or "f16") != wanted["quantization"]:
+        return True
+    if int(fp.get_meta(vconn, "pca_dims") or 0) != wanted["pca_dims"]:
+        return True
     try:
         meta = inspect(registry.paths(name).index)
     except IndexError_:
         return True
-    return meta is None or meta["dimensions"] != spec.dim
+    return (
+        meta is None
+        or meta["dimensions"] != wanted["index_dim"]
+        or meta["dtype"] != wanted["quantization"]
+    )
 
 
 def check_indexes(registry: ProfileRegistry, model_dir: Path | None = None) -> int:

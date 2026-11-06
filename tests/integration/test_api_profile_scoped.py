@@ -111,3 +111,17 @@ def test_overview_lists_folders_and_group_counts(client, tmp_path):
     ]
     assert overview["groups"] == {"open": 0, "auto_resolved": 0, "resolved": 0, "dismissed": 0}
     assert overview["dirty"] == 0
+
+
+def test_changing_an_index_option_queues_a_rebuild(client):
+    login(client)
+    assert client.post("/api/profiles", json={"name": "a"}).status_code == 201
+    r = client.put("/api/p/a/settings/index.quantization", json={"value": "i8"})
+    assert r.status_code == 200 and r.json()["rebuild_queued"] is True
+    again = client.put("/api/p/a/settings/index.quantization", json={"value": "i8"})
+    assert again.json()["rebuild_queued"] is False  # unchanged value, nothing queued
+    jobs = [j for j in client.get("/api/p/a/jobs").json() if j["type"] == "rebuild_index"]
+    assert len(jobs) == 1
+    assert (
+        client.put("/api/p/a/settings/index.quantization", json={"value": "f32"}).status_code == 400
+    )

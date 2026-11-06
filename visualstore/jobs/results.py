@@ -66,6 +66,17 @@ def link_identical(conn: sqlite3.Connection, file_id: bytes, sha1: bytes) -> boo
 MATCH_BATCH = 64
 
 
+def index_options(settings: dict, paths, model_dim: int) -> dict:
+    """What a compute child needs to open or build the profile index (ADR-0008)."""
+    dims = int(settings.get("index.pca_dims", 0))
+    return {
+        "quantization": str(settings.get("index.quantization", "f16")),
+        "pca_dims": dims,
+        "pca_path": str(paths.root / "pca.npz") if dims else None,
+        "index_dim": dims or model_dim,
+    }
+
+
 def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, priority: int) -> int:
     """Queue one `match` job per MATCH_BATCH entries ({"seq", "vector"}); returns the job count."""
     from visualstore.db import fingerprints as fp
@@ -82,6 +93,7 @@ def enqueue_match(conn, vconn, settings: dict, paths, model: dict, entries, prio
             params={
                 "model": model,
                 "index_path": str(paths.index),
+                "index": index_options(settings, paths, int(model["dim"])),
                 "entries": entries[start : start + MATCH_BATCH],
                 "remove": fp.pending_removals(vconn, model["id"]) if start == 0 else [],
                 "top_k": int(settings["similarity.top_k"]),
@@ -242,6 +254,9 @@ def sink_build_index(ctx: SinkContext) -> None:
     fp.set_meta(ctx.vconn, "model_id", ctx.result["model_id"])
     fp.set_meta(ctx.vconn, "dim", str(ctx.result["dim"]))
     fp.set_meta(ctx.vconn, "built_at", now_iso())
+    options = ctx.params.get("index") or {}
+    fp.set_meta(ctx.vconn, "quantization", str(options.get("quantization", "f16")))
+    fp.set_meta(ctx.vconn, "pca_dims", str(int(options.get("pca_dims", 0))))
     if ctx.result["model_id"] != ctx.settings.get("model.id"):
         return  # the model changed again meanwhile; the switch queued its own rebuild
     match_unindexed(

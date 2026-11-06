@@ -27,7 +27,17 @@ def inspect(path: Path) -> dict | None:
         raise IndexError_(f"{path} is not a readable usearch index: {exc}") from exc
     if not meta:
         raise IndexError_(f"{path} is not a readable usearch index")
-    return {"dimensions": int(meta["dimensions"]), "count": int(meta["count_present"])}
+    return {
+        "dimensions": int(meta["dimensions"]),
+        "count": int(meta["count_present"]),
+        "dtype": _dtype_name(meta.get("kind_scalar")),
+    }
+
+
+def _dtype_name(kind) -> str:
+    """usearch reports a ScalarKind enum (F16, I8, ...); settings use the lowercase names."""
+    name = getattr(kind, "name", None) or str(kind)
+    return name.split(".")[-1].lower()
 
 
 class VectorIndex:
@@ -36,17 +46,21 @@ class VectorIndex:
         self.dim = dim
 
     @classmethod
-    def empty(cls, dim: int) -> VectorIndex:
-        return cls(Index(ndim=dim, metric="cos", dtype="f16"), dim)
+    def empty(cls, dim: int, quantization: str = "f16") -> VectorIndex:
+        return cls(Index(ndim=dim, metric="cos", dtype=quantization), dim)
 
     @classmethod
-    def open_or_create(cls, path: Path, dim: int) -> VectorIndex:
+    def open_or_create(cls, path: Path, dim: int, quantization: str = "f16") -> VectorIndex:
         meta = inspect(path)
         if meta is None:
-            return cls.empty(dim)
+            return cls.empty(dim, quantization)
         if meta["dimensions"] != dim:
             raise IndexError_(
                 f"{path} has dimension {meta['dimensions']}, the active model needs {dim}"
+            )
+        if meta["dtype"] != quantization:
+            raise IndexError_(
+                f"{path} is quantised as {meta['dtype']}, the settings say {quantization}"
             )
         try:
             index = Index.restore(str(path), view=False)

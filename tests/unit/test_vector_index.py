@@ -23,7 +23,7 @@ def test_add_search_remove_round_trip(tmp_path):
     assert path.is_file() and not (tmp_path / "index.usearch.tmp").exists()
     again = VectorIndex.open_or_create(path, 4)
     assert again.count == 2 and [k for k, _ in again.search(unit([0, 0, 1, 0]), 1)] == [12]
-    assert inspect(path) == {"dimensions": 4, "count": 2}
+    assert inspect(path) == {"dimensions": 4, "count": 2, "dtype": "f16"}
 
 
 def test_missing_file_creates_empty_and_dimension_mismatch_is_an_error(tmp_path):
@@ -58,3 +58,15 @@ def test_add_replaces_the_vector_of_a_key_that_is_already_present():
     assert idx.count == 1
     [(key, distance)] = idx.search(unit([0, 1, 0, 0]), 1)
     assert key == 7 and distance < 1e-3
+
+
+def test_i8_index_round_trips_and_inspect_reports_the_dtype(tmp_path):
+    idx = VectorIndex.empty(4, "i8")
+    idx.add([1, 2], np.array([unit([1, 0, 0, 0]), unit([0, 1, 0, 0])]))
+    idx.save(tmp_path / "i.usearch")
+    assert inspect(tmp_path / "i.usearch")["dtype"] == "i8"
+    again = VectorIndex.open_or_create(tmp_path / "i.usearch", 4, "i8")
+    [(key, distance)] = again.search(unit([1, 0, 0, 0]), 1)
+    assert key == 1 and distance < 0.05
+    with pytest.raises(IndexError_):
+        VectorIndex.open_or_create(tmp_path / "i.usearch", 4, "f16")  # dtype mismatch
