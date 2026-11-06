@@ -51,13 +51,16 @@ def allocate_keys(
     vconn: sqlite3.Connection, file_id: bytes, model_id: str, frame_indices: list[int]
 ) -> list[int]:
     with vconn:
+        # A retired key is never revived: its vector may still sit in a queued match's remove
+        # list. Tombstone it under an impossible frame index (it stays deleted=1 until that
+        # match drops it) and let AUTOINCREMENT issue a fresh seq for the frame.
         vconn.executemany(
-            "INSERT OR IGNORE INTO index_key (file_id, model_id, frame_index) VALUES (?, ?, ?)",
+            "UPDATE index_key SET frame_index = -seq - 1"
+            " WHERE file_id = ? AND model_id = ? AND frame_index = ? AND deleted = 1",
             [(file_id, model_id, i) for i in frame_indices],
         )
         vconn.executemany(
-            "UPDATE index_key SET deleted = 0"
-            " WHERE file_id = ? AND model_id = ? AND frame_index = ? AND deleted = 1",
+            "INSERT OR IGNORE INTO index_key (file_id, model_id, frame_index) VALUES (?, ?, ?)",
             [(file_id, model_id, i) for i in frame_indices],
         )
         marks = ",".join("?" * len(frame_indices)) or "NULL"
@@ -97,8 +100,12 @@ def pending_removals(vconn: sqlite3.Connection, model_id: str) -> list[int]:
 
 
 def drop_keys(vconn: sqlite3.Connection, seqs: Iterable[int]) -> None:
+    """Forget retired keys once the index no longer holds them. Live rows are never touched,
+    even if a stale remove list names their seq."""
     with vconn:
-        vconn.executemany("DELETE FROM index_key WHERE seq = ?", [(s,) for s in seqs])
+        vconn.executemany(
+            "DELETE FROM index_key WHERE seq = ? AND deleted = 1", [(s,) for s in seqs]
+        )
 
 
 def get_meta(vconn: sqlite3.Connection, key: str) -> str | None:

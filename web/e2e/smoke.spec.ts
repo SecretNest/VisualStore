@@ -80,6 +80,7 @@ test("switch model, scan a folder, resolve the identical group, restore from tra
 
   await page.getByRole("row", { name: /near duplicate/ }).getByRole("link", { name: "2 files" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Group of 2 files");
+  await expect(page.getByRole("note")).toHaveCount(0); // the clip has a real preview (its middle frame)
   const strip = page.getByRole("list", { name: "Frames" });
   await expect(strip.getByRole("listitem")).toHaveCount(2, { timeout: 20_000 });
   await expect(strip.getByRole("listitem").nth(1)).toContainText("1.0 s");

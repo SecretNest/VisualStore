@@ -85,3 +85,21 @@ def test_allocate_keys_retires_frames_that_vanished(vconn):
     assert fp.pending_removals(vconn, model) == first[2:]
     assert set(fp.resolve_keys(vconn, first)) == set(first[:2])
     assert len(fp.frames_of_file(vconn, fid, model)) == 2
+
+
+def test_retired_keys_are_never_revived_and_only_dead_rows_are_dropped(vconn):
+    """Final review I2: an older match's remove list must never delete a live row."""
+    fid, model = b"r" * 16, "m"
+    fp.replace_frames(vconn, fid, model, [(i, i * 100, b"\x00" * 16) for i in range(4)])
+    first = fp.allocate_keys(vconn, fid, model, [0, 1, 2, 3])
+    fp.replace_frames(vconn, fid, model, [(i, i * 100, b"\x01" * 16) for i in range(2)])
+    fp.allocate_keys(vconn, fid, model, [0, 1])
+    retired = fp.pending_removals(vconn, model)
+    assert retired == first[2:]
+    fp.replace_frames(vconn, fid, model, [(i, i * 100, b"\x02" * 16) for i in range(4)])
+    again = fp.allocate_keys(vconn, fid, model, [0, 1, 2, 3])
+    assert again[:2] == first[:2] and not set(again[2:]) & set(retired)  # fresh seqs
+    assert fp.pending_removals(vconn, model) == retired  # still to be removed from the index
+    fp.drop_keys(vconn, retired + again[2:])  # a stale remove list naming live seqs
+    assert fp.pending_removals(vconn, model) == []
+    assert set(fp.resolve_keys(vconn, again)) == set(again)  # live rows untouched

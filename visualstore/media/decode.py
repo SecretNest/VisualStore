@@ -27,10 +27,16 @@ class Decoded:
     pages: int = 1
 
 
-def normalise(img: pyvips.Image) -> pyvips.Image:
-    """EXIF rotation, alpha flattened on white, sRGB, three uchar bands, decoded in memory."""
+FRAME_PX = 1024  # frames of multi-frame media are shrunk to this before they are held in memory
+
+
+def normalise(img: pyvips.Image, longest: int | None = None) -> pyvips.Image:
+    """EXIF rotation, alpha flattened on white, sRGB, three uchar bands, decoded in memory.
+    With `longest`, the image is shrunk to that bound first (never upscaled)."""
     try:
         img = img.autorot()
+        if longest is not None and max(img.width, img.height) > longest:
+            img = img.thumbnail_image(longest, height=longest, size="down")
         if img.hasalpha():
             img = img.flatten(background=[255, 255, 255])
         if img.interpretation != "srgb" or img.bands != 3:
@@ -63,14 +69,14 @@ def load_image(path: str, max_pixels: int) -> Decoded:
 
 
 def image_from_png(data: bytes, max_pixels: int) -> Decoded:
-    """A frame that ffmpeg wrote as PNG."""
+    """A frame that ffmpeg wrote as PNG, shrunk to FRAME_PX so a file's frames stay small."""
     try:
         img = pyvips.Image.new_from_buffer(data, "", access="sequential", fail_on="truncated")
     except pyvips.Error as exc:
         raise Unreadable(str(exc)) from exc
     if img.width * img.height > max_pixels:
         raise Unreadable(f"{img.width}x{img.height} exceeds the limit of {max_pixels} pixels")
-    img = normalise(img)
+    img = normalise(img, FRAME_PX)
     return Decoded(image=img, width=img.width, height=img.height)
 
 

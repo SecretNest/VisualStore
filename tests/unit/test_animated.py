@@ -48,3 +48,9 @@ def test_frames_follow_the_sampling_rules_for_each_backend(tmp_path):
     assert len(got) == 8 and times == sorted(times) and len(set(times)) == 8 and times[0] == 0
     assert times[-1] == round(499 / 5 * 1000)
     assert [f.time_ms for f in frames(str(ten), 3, 60, MAX)] == [0, 800, 1800]
+
+
+def test_pages_are_shrunk_to_at_most_1024_px(tmp_path):
+    big = make_gif(tmp_path / "big.gif", 2, size="2048x1024")
+    [frame] = load_pages(str(big), [1], MAX)
+    assert (frame.image.width, frame.image.height) == (1024, 512)

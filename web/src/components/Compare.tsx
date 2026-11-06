@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CompareMode } from "../pages/groupKeys";
 import { layers } from "./compareLayout";
 
-function PreviewImage({ name, fileId, frame, opacity, shown, onFallback }: { name: string; fileId: string; frame: number | null; opacity: number; shown: boolean; onFallback: (id: string) => void }) {
+function PreviewImage({ name, fileId, frame, opacity, shown, onFallback, onReset }: { name: string; fileId: string; frame: number | null; opacity: number; shown: boolean; onFallback: (id: string) => void; onReset: (id: string) => void }) {
   const [source, setSource] = useState<"preview" | "thumbnail" | "none">("preview");
-  useEffect(() => setSource("preview"), [fileId, frame]);
+  useEffect(() => {
+    setSource("preview");
+    onReset(fileId);
+  }, [fileId, frame, onReset]);
   const style = { opacity, visibility: shown ? "visible" : "hidden" } as const;
   if (source === "none")
     return (
@@ -55,13 +58,19 @@ export default function Compare({
   }, [mode]);
   const l = layers(mode, tick, opacity);
   const note = (id: string) => setFallbacks((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  const reset = useCallback((id: string) => setFallbacks((prev) => {
+    if (!prev.has(id)) return prev;
+    const next = new Set(prev);
+    next.delete(id);
+    return next;
+  }), []);
   const sides = [leftId, rightId].filter((id): id is string => id !== null);
   return (
     <div className={`compare compare-${mode}${l.stacked ? " compare-stacked" : ""}`} data-tick={tick}>
       <div className="compare-images">
-        <PreviewImage name={name} fileId={leftId} frame={leftFrame} opacity={l.left.opacity} shown={l.left.shown} onFallback={note} />
+        <PreviewImage name={name} fileId={leftId} frame={leftFrame} opacity={l.left.opacity} shown={l.left.shown} onFallback={note} onReset={reset} />
         {rightId && (
-          <PreviewImage name={name} fileId={rightId} frame={rightFrame} opacity={l.right.opacity} shown={l.right.shown} onFallback={note} />
+          <PreviewImage name={name} fileId={rightId} frame={rightFrame} opacity={l.right.opacity} shown={l.right.shown} onFallback={note} onReset={reset} />
         )}
       </div>
       {mode === "overlay" && rightId && (

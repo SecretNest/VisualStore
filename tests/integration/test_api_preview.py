@@ -77,7 +77,7 @@ def test_preview_failures_are_404_with_a_reason(client, tmp_path):
     video = id_to_str(add("clip.mp4", b"not decoded yet", media="mp4"))
     assert (
         client.get(f"/api/p/a/files/{video}/preview").json()["detail"]
-        == "No preview for this media type yet."
+        == "No preview yet."
     )
     assert (
         client.get("/api/p/a/files/00000000-0000-4000-8000-000000000000/preview").status_code == 404
@@ -205,3 +205,19 @@ def test_frames_listing_and_frame_images(client, tmp_path):
         )
     )
     assert not cache.exists()
+
+
+def test_preview_of_a_video_is_its_thumbnail_frame_once_fingerprinted(client, tmp_path):
+    """Final review I1: multi-frame members get a real preview, not the fallback note."""
+    reg, lib, add = seed(client, tmp_path)
+    make_clip(lib / "clip.mp4", 3)
+    clip = add("clip.mp4", (lib / "clip.mp4").read_bytes(), media="mp4")
+    assert (
+        client.get(f"/api/p/a/files/{id_to_str(clip)}/preview").json()["detail"]
+        == "No preview yet."
+    )
+    fingerprinted(reg, lib, clip, "clip.mp4", "video")
+    got = client.get(f"/api/p/a/files/{id_to_str(clip)}/preview")
+    assert got.status_code == 200 and pyvips.Image.new_from_buffer(got.content, "").width == 160
+    middle = client.get(f"/api/p/a/files/{id_to_str(clip)}/frame/1")
+    assert got.content == middle.content  # the middle frame, like the thumbnail

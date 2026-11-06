@@ -78,3 +78,12 @@ def test_oversized_frames_are_refused_before_extraction(tmp_path):
     with pytest.raises(Unreadable, match="exceeds"):
         frames_at_indices(str(clip), [0], 30, 1000, fps=10.0)
     assert probe(str(clip), 30).width == 160 and probe(str(clip), 30).height == 120
+
+
+def test_extracted_frames_are_shrunk_to_at_most_1024_px(tmp_path):
+    """Final review I3: frames are bounded in memory before embedding."""
+    clip = make_clip(tmp_path / "big.mp4", 1, size="2560x1440", rate=5)
+    [frame] = frames_at_times(str(clip), [0.0], 60, 100_000_000)
+    assert (frame.image.width, frame.image.height) == (1024, 576)
+    [frame] = frames_at_indices(str(clip), [0], 60, 100_000_000, fps=5.0)
+    assert frame.image.width == 1024

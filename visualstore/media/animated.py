@@ -6,7 +6,7 @@ from pathlib import PurePath
 
 import pyvips
 
-from visualstore.media.decode import _NOT_MEDIA_MARKERS, normalise
+from visualstore.media.decode import _NOT_MEDIA_MARKERS, FRAME_PX, normalise
 from visualstore.media.errors import NotMedia, Unreadable
 from visualstore.media.frames import Frame, sample_indices
 
@@ -55,7 +55,7 @@ def load_pages(path: str, indices: list[int], max_pixels: int) -> list[Frame]:
         if img.width * img.height > max_pixels:
             raise Unreadable(f"{img.width}x{img.height} exceeds the limit of {max_pixels} pixels")
         time_ms = times[index] if index < len(times) else index * 100
-        frames.append(Frame(position, time_ms, normalise(img)))
+        frames.append(Frame(position, time_ms, normalise(img, FRAME_PX)))
     return frames
 
 

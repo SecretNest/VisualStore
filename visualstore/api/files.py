@@ -141,10 +141,26 @@ async def file_preview(
     path = Path(folder["path"]) / files_db.relative_path(row["directory"], row["name"])
     if not path.is_file():
         raise HTTPException(status_code=404, detail="The file is not on disk.")
-    if _media_type(conn, bytes(row["extension_id"])) != "image":
-        raise HTTPException(status_code=404, detail="No preview for this media type yet.")
     from visualstore.media.decode import preview_webp  # pyvips: not imported server-wide
 
+    media_type = _media_type(conn, bytes(row["extension_id"]))
+    if media_type in ("animated", "video"):
+        # The preview of a multi-frame file is the frame its thumbnail shows: the middle
+        # sampled frame for video, the first for animated images (design §7.2).
+        frames = _frames_of(state, name, conn, fid)
+        if not frames:
+            raise HTTPException(status_code=404, detail="No preview yet.")
+        chosen = frames[len(frames) // 2] if media_type == "video" else frames[0]
+        settings = settings_db.all(conn)
+        await _cached_render(
+            cache,
+            lambda: _render_frame(
+                str(path), media_type, chosen["frame_index"], chosen["frame_time_ms"], settings
+            ),
+        )
+        return FileResponse(cache, media_type="image/webp")
+    if media_type != "image":
+        raise HTTPException(status_code=404, detail="No preview for this media type.")
     max_pixels = int(settings_db.get(conn, "media.max_pixels"))
     await _cached_render(cache, lambda: preview_webp(str(path), PREVIEW_PX, max_pixels))
     return FileResponse(cache, media_type="image/webp")
