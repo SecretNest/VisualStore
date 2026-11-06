@@ -15,6 +15,7 @@ def config(tmp_path):
         password=PASSWORD,
         compute_processes=1,
         port=8080,
+        model_dir=tmp_path / "models",
     )
 
 

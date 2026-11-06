@@ -46,3 +46,9 @@ def test_non_positive_or_non_integer_process_count_is_rejected(value):
     with pytest.raises(ConfigError) as exc:
         Config.from_env({"VISUALSTORE_PASSWORD": "pw", "VISUALSTORE_COMPUTE_PROCESSES": value})
     assert "VISUALSTORE_COMPUTE_PROCESSES" in str(exc.value)
+
+
+def test_model_dir_default_and_override():
+    assert Config.from_env({"VISUALSTORE_PASSWORD": "pw"}).model_dir == Path("/data/models")
+    cfg = Config.from_env({"VISUALSTORE_PASSWORD": "pw", "VISUALSTORE_MODEL_DIR": "/models"})
+    assert cfg.model_dir == Path("/models")

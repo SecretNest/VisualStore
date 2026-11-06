@@ -24,6 +24,7 @@ class Config:
     password: str
     compute_processes: int
     port: int
+    model_dir: Path = Path("/data/models")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Config:
@@ -42,6 +43,7 @@ class Config:
                 env, "VISUALSTORE_COMPUTE_PROCESSES", os.cpu_count() or 1
             ),
             port=_positive_int(env, "VISUALSTORE_PORT", 8080),
+            model_dir=Path(env.get("VISUALSTORE_MODEL_DIR") or "/data/models"),
         )
 
 
