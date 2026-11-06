@@ -54,11 +54,18 @@ def count_by_state(conn: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
-def next_queued(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
+def next_queued(
+    conn: sqlite3.Connection, kind: str, exclude_types: tuple[str, ...] = ()
+) -> sqlite3.Row | None:
+    clause = ""
+    params: list = [kind]
+    if exclude_types:
+        clause = f" AND type NOT IN ({','.join('?' * len(exclude_types))})"
+        params.extend(exclude_types)
     return conn.execute(
-        "SELECT * FROM job WHERE state = 'queued' AND kind = ?"
+        f"SELECT * FROM job WHERE state = 'queued' AND kind = ?{clause}"
         " ORDER BY priority DESC, created_at ASC, rowid ASC LIMIT 1",
-        (kind,),
+        params,
     ).fetchone()
 
 

@@ -12,6 +12,8 @@ KIND_OF: dict[str, str] = {
     "fail": "compute",  # deliberately raises; used by tests
     "fingerprint": "compute",
     "match": "compute",
+    "build_index": "compute",
+    "rebuild_index": "io",
     "scan": "io",
     "regroup": "io",
     "apply_action": "io",

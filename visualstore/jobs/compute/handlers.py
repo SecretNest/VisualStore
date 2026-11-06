@@ -152,9 +152,27 @@ def match(params: dict, report: Report) -> dict:
     return {"hits": hits, "added": len(keys), "removed": removed, "count": index.count}
 
 
+def build_index(params: dict, report: Report) -> dict:
+    """Build a fresh index from an exported (keys, vectors) file and replace the profile's."""
+    from visualstore.index.usearch_index import VectorIndex
+
+    data = np.load(params["export_path"])
+    keys = data["keys"].astype(np.uint64)
+    vectors = data["vectors"].astype(np.float32)
+    index = VectorIndex.empty(int(params["dim"]))
+    step = 4096
+    for start in range(0, len(keys), step):
+        index.add(keys[start : start + step].tolist(), vectors[start : start + step])
+        report({"done": min(start + step, len(keys)), "total": len(keys), "message": "building"})
+    index.save(Path(params["index_path"]))
+    os.unlink(params["export_path"])
+    return {"count": index.count, "model_id": params["model_id"], "dim": int(params["dim"])}
+
+
 HANDLERS: dict[str, Handler] = {
     "ping": ping,
     "fail": fail,
     "fingerprint": fingerprint,
     "match": match,
+    "build_index": build_index,
 }

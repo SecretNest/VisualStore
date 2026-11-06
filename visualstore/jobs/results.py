@@ -190,3 +190,15 @@ def sink_match(ctx: SinkContext) -> None:
 
 
 RESULT_SINKS["match"] = sink_match
+
+
+def sink_build_index(ctx: SinkContext) -> None:
+    from visualstore.clock import now_iso
+    from visualstore.db import fingerprints as fp
+
+    fp.set_meta(ctx.vconn, "model_id", ctx.result["model_id"])
+    fp.set_meta(ctx.vconn, "dim", str(ctx.result["dim"]))
+    fp.set_meta(ctx.vconn, "built_at", now_iso())
+
+
+RESULT_SINKS["build_index"] = sink_build_index

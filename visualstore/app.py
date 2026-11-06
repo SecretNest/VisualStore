@@ -34,6 +34,7 @@ from visualstore.jobs.io import IO_HANDLERS
 from visualstore.jobs.io.backup import plan_backups
 from visualstore.jobs.io.planners import plan_purge, plan_regroup, plan_scans
 from visualstore.jobs.scheduler import Scheduler
+from visualstore.jobs.startup import check_indexes
 from visualstore.profiles import ProfileError, ProfileNotFound, ProfileRegistry
 
 DEFAULT_STATIC_DIR = Path(__file__).parent / "static"
@@ -78,6 +79,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
             ],
         )
         scheduler.requeue_interrupted()
+        check_indexes(registry)
         await scheduler.start()
         app.state.vs = AppState(
             config=config,

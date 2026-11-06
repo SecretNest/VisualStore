@@ -27,6 +27,8 @@ from visualstore.profiles import ProfileNotFound, ProfilePaths, ProfileRegistry
 
 log = logging.getLogger(__name__)
 
+EXCLUSIVE_COMPUTE = {"match", "build_index"}  # one index writer per profile (design §6.4)
+
 
 @dataclass
 class IoContext:
@@ -86,6 +88,7 @@ class Scheduler:
         self.plan_interval = plan_interval
         self.in_flight: dict[str, str] = {}  # compute job id (str) -> profile name
         self.in_flight_pid: dict[str, int] = {}  # compute job id (str) -> pid of its child
+        self.in_flight_types: dict[str, str] = {}  # compute job id (str) -> job type
         self._io_task: asyncio.Task | None = None
         self._loop_task: asyncio.Task | None = None
         self._last_plan: float | None = None
@@ -146,9 +149,27 @@ class Scheduler:
 
     # -- compute -----------------------------------------------------------------------
 
+    def _busy_exclusive(self) -> set[str]:
+        return {
+            self.in_flight[j] for j, t in self.in_flight_types.items() if t in EXCLUSIVE_COMPUTE
+        }
+
+    def _pick_compute(self) -> tuple[str, sqlite3.Row] | None:
+        busy = self._busy_exclusive()
+        best: tuple[tuple[int, str], str, sqlite3.Row] | None = None
+        for name in self.registry.names():
+            exclude = tuple(EXCLUSIVE_COMPUTE) if name in busy else ()
+            row = jobs_db.next_queued(self.registry.conn(name), "compute", exclude_types=exclude)
+            if row is None:
+                continue
+            key = (-int(row["priority"]), str(row["created_at"]))
+            if best is None or key < best[0]:
+                best = (key, name, row)
+        return None if best is None else (best[1], best[2])
+
     def _dispatch_compute(self) -> None:
         while len(self.in_flight) < self.pool.size:
-            picked = self._pick("compute")
+            picked = self._pick_compute()
             if picked is None:
                 return
             profile, row = picked
@@ -159,6 +180,7 @@ class Scheduler:
             jobs_db.mark_running(conn, row["id"])
             job_id = id_to_str(row["id"])
             self.in_flight[job_id] = profile
+            self.in_flight_types[job_id] = row["type"]
             self.pool.submit(
                 ComputeRequest(
                     job_id=job_id,
@@ -194,6 +216,7 @@ class Scheduler:
     def _forget(self, job_id: str) -> None:
         self.in_flight.pop(job_id, None)
         self.in_flight_pid.pop(job_id, None)
+        self.in_flight_types.pop(job_id, None)
 
     def _fail_jobs_of_dead_children(self) -> None:
         """A child that died (OOM, crash) never answers; count the attempt and move on.
