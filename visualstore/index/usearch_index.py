@@ -6,6 +6,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+
+# onnxruntime must be loaded before usearch's extension module: on the Debian bookworm image
+# (usearch 2.26 / onnxruntime 1.31) importing onnxruntime *after* usearch segfaults the process,
+# and the compute children need both (fingerprint embeds, match searches).
+import onnxruntime  # noqa: F401, I001
 from usearch.index import Index
 
 
