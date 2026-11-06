@@ -105,9 +105,15 @@ export interface Pair {
   model_id: string | null;
 }
 
+export interface Neighbour {
+  file_id: string;
+  distance: number;
+}
+
 export interface GroupDetail {
   group: Group;
   pairs: Pair[];
+  neighbours: Record<string, Neighbour | null>;
 }
 
 export interface TrashEntry {

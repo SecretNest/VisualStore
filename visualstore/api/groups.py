@@ -12,6 +12,7 @@ from visualstore.db import jobs as jobs_db
 from visualstore.db import pairs as pairs_db
 from visualstore.db import settings as settings_db
 from visualstore.domain.bands import BANDS, band, band_bounds, thresholds_from
+from visualstore.domain.neighbours import nearest
 from visualstore.ids import id_to_str
 from visualstore.jobs.types import PRIORITY_USER
 
@@ -108,8 +109,21 @@ async def get_group(group_id: str, request: Request, name: str = Depends(get_pro
     conn = get_state(request).registry.conn(name)
     gid = parse_id(group_id)
     row = _group_or_404(conn, gid)
-    inner = _inner_pairs(conn, _member_ids(conn, gid))
-    return {"group": _group_out(conn, row), "pairs": [pairs_db.pair_to_dict(p) for p in inner]}
+    members = groups_db.members(conn, gid)
+    paths = {bytes(m["file_id"]): groups_db.member_to_dict(m)["relative_path"] for m in members}
+    inner = _inner_pairs(conn, set(paths))
+    near = nearest(
+        paths,
+        [(bytes(p["file_a"]), bytes(p["file_b"]), p["distance"], p["judgment"]) for p in inner],
+    )
+    return {
+        "group": _group_out(conn, row),
+        "pairs": [pairs_db.pair_to_dict(p) for p in inner],
+        "neighbours": {
+            id_to_str(m): ({"file_id": id_to_str(n[0]), "distance": n[1]} if n else None)
+            for m, n in near.items()
+        },
+    }
 
 
 @router.post("/groups/{group_id}/resolve")

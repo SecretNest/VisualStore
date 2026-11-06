@@ -152,3 +152,13 @@ def test_groups_carry_bands_and_filter_by_band(client, seeded):
     assert client.get("/api/p/a/groups?band=nope").status_code == 400
     counts = client.get("/api/p/a/groups/counts").json()
     assert counts["bands"] == {"identical": 1, "near_duplicate": 0, "variant": 0, "candidate": 0}
+
+
+def test_detail_carries_the_nearest_neighbour_per_member(client, seeded):
+    s = seeded
+    detail = client.get(f"/api/p/a/groups/{id_to_str(s['gid'])}").json()
+    near = detail["neighbours"]
+    a, b, c = (id_to_str(s[k]) for k in "abc")
+    assert near[a] == {"file_id": b, "distance": 0.0}  # tie with c: b.jpg sorts first
+    assert near[b] == {"file_id": a, "distance": 0.0}
+    assert near[c] == {"file_id": a, "distance": 0.0}
