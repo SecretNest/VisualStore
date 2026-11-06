@@ -38,7 +38,9 @@ def test_empty_display_name_falls_back_to_name(registry):
     assert registry.create("photos").display_name == "photos"
 
 
-@pytest.mark.parametrize("bad", ["", "CG", "a b", "a/b", "../x", "..", "-a", "a-", "a--b", "é"])
+@pytest.mark.parametrize(
+    "bad", ["", "CG", "a b", "a/b", "../x", "..", "-a", "a-", "a--b", "é", "cg\n", "cg\x00"]
+)
 def test_invalid_names_are_rejected_before_touching_disk(registry, bad):
     """Review Focus 1: a name is a directory and a URL segment; nothing may escape /profiles."""
     with pytest.raises(ProfileError):

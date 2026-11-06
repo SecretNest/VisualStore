@@ -58,7 +58,7 @@ class ProfilePaths:
 
 
 def validate_name(name: str) -> None:
-    if not PROFILE_NAME_RE.match(name or ""):
+    if not PROFILE_NAME_RE.fullmatch(name or ""):
         raise ProfileError(
             "Profile names use lowercase letters, digits and single hyphens between them."
         )
