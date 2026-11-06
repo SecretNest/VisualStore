@@ -39,3 +39,6 @@ h3 { font-size: 0.95rem; margin: 0.75rem 0 0.25rem; }
 .member.anchor { background: color-mix(in srgb, currentColor 8%, transparent); }
 .member-delete > div:first-child { opacity: 0.6; text-decoration: line-through; }
 button.active { outline: 2px solid currentColor; }
+.thumb { object-fit: cover; border-radius: 0.25rem; vertical-align: middle; margin-right: 0.5rem; background: color-mix(in srgb, currentColor 10%, transparent); }
+.thumb-empty { display: inline-block; }
+td.with-thumb { white-space: nowrap; }

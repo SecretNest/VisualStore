@@ -1,10 +1,10 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
-import { formatWhen } from "../format";
-import type { Folder, Job, TrashEntry } from "../types";
+import { formatBytes, formatWhen } from "../format";
+import type { EvalReport, Folder, Job, ModelInfo, TrashEntry } from "../types";
 
-type Settings = Record<string, boolean | number>;
+type Settings = Record<string, boolean | number | string>;
 const STATES = ["queued", "running", "done", "failed", "cancelled"];
 
 export default function Jobs() {
@@ -19,20 +19,28 @@ export default function Jobs() {
   const [notice, setNotice] = useState<string | null>(null);
   const [move, setMove] = useState({ source_folder_id: "", target_folder_id: "", directories: "" });
   const [imp, setImp] = useState({ db_path: "", rows: [{ name: "", path: "" }] });
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [chosenModel, setChosenModel] = useState("");
+  const [reports, setReports] = useState<EvalReport[]>([]);
+  const [evalForm, setEvalForm] = useState({ db_path: "", negatives: 5000 });
 
   const load = useCallback(async () => {
     try {
       const q = stateFilter ? `?state=${stateFilter}&limit=100` : "?limit=100";
-      const [j, s, t, f] = await Promise.all([
+      const [j, s, t, f, m, r] = await Promise.all([
         get<Job[]>(`/api/p/${name}/jobs${q}`),
         get<Settings>(`/api/p/${name}/settings`),
         get<TrashEntry[]>(`/api/p/${name}/trash`),
         get<Folder[]>(`/api/p/${name}/folders`),
+        get<ModelInfo[]>("/api/models"),
+        get<EvalReport[]>(`/api/p/${name}/eval/reports`),
       ]);
       setJobs(j);
       setSettings(s);
       setTrash(t);
       setFolders(f);
+      setModels(m);
+      setReports(r);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load.");
@@ -77,6 +85,22 @@ export default function Jobs() {
     void run(async () => {
       const job = await post<Job>(`/api/p/${name}/import-v1`, { db_path: imp.db_path, folder_paths });
       setNotice(`Import queued as job ${job.id}. Watch the job list for progress.`);
+    });
+  }
+
+  function submitSwitch(e: FormEvent) {
+    e.preventDefault();
+    void run(async () => {
+      const job = await post<Job>(`/api/p/${name}/model-switch`, { model_id: chosenModel });
+      setNotice(`Model switch queued as job ${job.id}.`);
+    });
+  }
+
+  function submitEval(e: FormEvent) {
+    e.preventDefault();
+    void run(async () => {
+      const job = await post<Job>(`/api/p/${name}/eval`, evalForm);
+      setNotice(`Evaluation queued as job ${job.id}.`);
     });
   }
 
@@ -154,7 +178,9 @@ export default function Jobs() {
                 <code>{key}</code>
               </td>
               <td>
-                {typeof value === "boolean" ? (
+                {typeof value === "string" ? (
+                  <code>{value}</code>
+                ) : typeof value === "boolean" ? (
                   <input
                     type="checkbox"
                     aria-label={key}
@@ -181,6 +207,62 @@ export default function Jobs() {
           ))}
         </tbody>
       </table>
+
+      <h2>Model</h2>
+      <p className="muted">
+        Active: <code>{String(settings["model.id"] ?? "")}</code>
+      </p>
+      <form className="inline" onSubmit={submitSwitch}>
+        <label>
+          Model
+          <select value={chosenModel} onChange={(e) => setChosenModel(e.target.value)} required>
+            <option value="">choose</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id} · {m.dim}-d{m.available ? " (downloaded)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={!chosenModel}>
+          Switch model
+        </button>
+      </form>
+
+      <h2>Evaluation against an ImageStore (v1) database</h2>
+      <form className="inline" onSubmit={submitEval}>
+        <label>
+          v1 .db path in the container
+          <input
+            value={evalForm.db_path}
+            onChange={(e) => setEvalForm({ ...evalForm, db_path: e.target.value })}
+            placeholder="/import/imagestore.db"
+            required
+          />
+        </label>
+        <label>
+          Random negative pairs
+          <input
+            type="number"
+            min={100}
+            value={evalForm.negatives}
+            onChange={(e) => setEvalForm({ ...evalForm, negatives: Number(e.target.value) || 5000 })}
+          />
+        </label>
+        <button type="submit">Run evaluation</button>
+      </form>
+      {reports.length > 0 && (
+        <ul>
+          {reports.map((r) => (
+            <li key={r.file}>
+              <a href={`/api/p/${name}/eval/reports/${r.file}`} target="_blank" rel="noreferrer">
+                {r.file}
+              </a>{" "}
+              <span className="muted">({formatBytes(r.size)})</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h2>Trash</h2>
       {trash.length === 0 ? (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
+import Thumb from "../components/Thumb";
 import { formatBytes } from "../format";
 import type { Decision, Group, GroupDetail as Detail } from "../types";
 import { applyKey, type KeyState } from "./groupKeys";
@@ -104,6 +105,7 @@ export default function GroupDetail() {
     <section>
       <h1>
         Group of {group.member_count} files {group.has_identical && <span className="tag">byte-identical</span>}{" "}
+        <span className="tag">{group.band.replace("_", " ")}</span>{" "}
         <span className="tag">{group.status.replace("_", " ")}</span>
       </h1>
       <p className="muted">
@@ -119,6 +121,7 @@ export default function GroupDetail() {
           return (
             <li key={m.file_id} className={classes.join(" ")} onClick={() => setKeys({ ...keys, selected: i })}>
               <div>
+                <Thumb name={name} fileId={m.file_id} size={64} />
                 <span className="tag">{m.role}</span> <strong>{m.folder_name}</strong> <code>{m.relative_path}</code>
                 <span className="muted"> · {formatBytes(m.size)}</span>{" "}
                 <a href={`/api/p/${name}/files/${m.file_id}/content`} target="_blank" rel="noreferrer">

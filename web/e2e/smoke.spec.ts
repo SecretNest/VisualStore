@@ -31,7 +31,7 @@ test("login, create a profile, run a backup, log out", async ({ page }) => {
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test("scan a folder, resolve the identical group, restore from trash", async ({ page }) => {
+test("switch model, scan a folder, resolve the identical group, restore from trash", async ({ page }) => {
   test.setTimeout(120_000);
   const mediaPath = readFileSync(new URL(".media-path", import.meta.url), "utf8");
   await page.goto("/login");
@@ -42,6 +42,12 @@ test("scan a folder, resolve the identical group, restore from trash", async ({ 
     await page.getByLabel("Name", { exact: true }).fill("demo");
     await page.getByRole("button", { name: "Create" }).click();
   }
+  await page.goto("/p/demo/jobs");
+  await page.getByRole("combobox", { name: "Model", exact: true }).selectOption("tiny-test-8-v1");
+  await page.getByRole("button", { name: "Switch model" }).click();
+  await expect(page.getByRole("status")).toContainText("Model switch queued");
+  await expect(page.locator("tr.job-done td", { hasText: "model_switch" })).toBeVisible({ timeout: 20_000 });
+
   await page.goto("/p/demo/folders");
   await page.getByLabel("Name", { exact: true }).fill("Lib");
   await page.getByLabel("Container path").fill(mediaPath);
@@ -52,13 +58,17 @@ test("scan a folder, resolve the identical group, restore from trash", async ({ 
 
   await page.goto("/p/demo/groups");
   await expect(page.getByRole("link", { name: "2 files" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("row", { name: /2 files/ })).toContainText("identical");
   await page.getByRole("link", { name: "2 files" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Group of 2 files");
+  const thumbs = page.locator("img.thumb");
+  await expect(thumbs).toHaveCount(2);
+  await expect.poll(() => thumbs.first().evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/p\/demo\/groups$/);
 
   await page.goto("/p/demo/jobs");
-  await expect(page.locator("code", { hasText: "b.jpg" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("code", { hasText: "b.png" })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(page.getByText("Nothing in the trash.")).toBeVisible({ timeout: 20_000 });
 });

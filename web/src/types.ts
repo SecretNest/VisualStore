@@ -81,11 +81,14 @@ export interface GroupMember {
   absolute_path: string;
 }
 
+export type Band = "identical" | "near_duplicate" | "variant" | "candidate";
+
 export interface Group {
   id: string;
   member_count: number;
   min_distance: number | null;
   has_identical: boolean;
+  band: Band;
   status: "open" | "auto_resolved" | "resolved" | "dismissed";
   updated_at: string;
   members: GroupMember[];
@@ -122,4 +125,18 @@ export interface SystemStatus {
   alive_workers: number;
   in_flight: number;
   profiles: number;
+}
+
+export interface ModelInfo {
+  id: string;
+  dim: number;
+  input_size: number;
+  description: string;
+  available: boolean;
+}
+
+export interface EvalReport {
+  file: string;
+  size: number;
+  time: number;
 }
