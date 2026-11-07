@@ -106,6 +106,7 @@ export default function GroupDetail() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "BUTTON" && (e.key === " " || e.key === "Enter")) (e.target as HTMLElement).blur();
       if (
         !keys ||
         !detail ||
@@ -171,7 +172,7 @@ export default function GroupDetail() {
         <span className="tag">{group.status.replace("_", " ")}</span>
       </h1>
       <p className="muted">
-        Keys: 1–9 select · ↑/↓ move · k keep · d delete · a anchor · u mark
+        Keys: 1–9 select the n-th member · ↑/↓ move · k keep · d delete · a anchor · u mark
         anchor+selected unrelated · s/o/b side-by-side/overlay/blink · n/p other
         member · Space swap · Enter confirm · Esc skip
       </p>
@@ -194,6 +195,12 @@ export default function GroupDetail() {
                   <strong>{m.folder_name}</strong>{" "}
                   <code>{m.relative_path}</code>
                   <span className="muted"> · {formatBytes(m.size)}</span>
+                  {m.width && m.height && (
+                    <span className="muted">
+                      {" "}
+                      · {m.width}×{m.height}
+                    </span>
+                  )}
                   {detail.neighbours[m.file_id] && (
                     <span className="muted">
                       {" "}
@@ -334,8 +341,12 @@ export default function GroupDetail() {
           type="button"
           onClick={() =>
             void (async () => {
-              await post(`/api/p/${name}/groups/${groupId}/dismiss`);
-              await goNext();
+              try {
+                await post(`/api/p/${name}/groups/${groupId}/dismiss`);
+                await goNext();
+              } catch (err) {
+                setError(err instanceof ApiError ? err.message : "Could not dismiss the group.");
+              }
             })()
           }
           disabled={group.status !== "open"}

@@ -9,7 +9,14 @@ const PAGE = 50;
 const STATUSES = ["open", "auto_resolved", "resolved", "dismissed"];
 const BANDS = ["identical", "near_duplicate", "variant", "candidate"];
 
-type Counts = Record<string, number | Record<string, number>>;
+interface Counts {
+  open?: number;
+  auto_resolved?: number;
+  resolved?: number;
+  dismissed?: number;
+  dirty?: number;
+  bands?: Record<string, number>;
+}
 
 export default function Groups() {
   const { name = "" } = useParams();
@@ -121,8 +128,8 @@ export default function Groups() {
     setOffset(offset + next.length);
   }
 
-  const num = (key: string) => (typeof counts[key] === "number" ? (counts[key] as number) : 0);
-  const bands = typeof counts.bands === "object" ? (counts.bands as Record<string, number>) : {};
+  const num = (key: "open" | "auto_resolved" | "resolved" | "dismissed" | "dirty") => counts[key] ?? 0;
+  const bands = counts.bands ?? {};
   const bandLine = Object.entries(bands)
     .map(([k, v]) => `${k.replace("_", " ")} ${v}`)
     .join(", ");
@@ -227,34 +234,36 @@ export default function Groups() {
       {groups.length === 0 ? (
         <p className="muted">No groups match.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Files</th>
-              <th>Band</th>
-              <th>Folders</th>
-              <th>First member</th>
-              <th>Status</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map((g) => (
-              <tr key={g.id} className={`group-${g.status}`}>
-                <td className="with-thumb">
-                  <Thumb name={name} fileId={g.members[0]?.file_id} />
-                  <Link to={`/p/${name}/groups/${g.id}`}>{g.member_count} files</Link>
-                  {g.has_identical && <span className="tag">identical</span>}
-                </td>
-                <td>{g.band.replace("_", " ")}</td>
-                <td>{[...new Set(g.members.map((m) => m.folder_name))].join(", ")}</td>
-                <td className="muted">{g.members[0]?.relative_path}</td>
-                <td>{g.status.replace("_", " ")}</td>
-                <td className="muted">{formatWhen(g.updated_at)}</td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Files</th>
+                <th>Band</th>
+                <th>Folders</th>
+                <th>First member</th>
+                <th>Status</th>
+                <th>Updated</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={g.id} className={`group-${g.status}`}>
+                  <td className="with-thumb">
+                    <Thumb name={name} fileId={g.members[0]?.file_id} />
+                    <Link to={`/p/${name}/groups/${g.id}`}>{g.member_count} files</Link>
+                    {g.has_identical && <span className="tag">identical</span>}
+                  </td>
+                  <td>{g.band.replace("_", " ")}</td>
+                  <td>{[...new Set(g.members.map((m) => m.folder_name))].join(", ")}</td>
+                  <td className="muted">{g.members[0]?.relative_path}</td>
+                  <td>{g.status.replace("_", " ")}</td>
+                  <td className="muted">{formatWhen(g.updated_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {groups.length >= PAGE && groups.length === offset && (
         <button type="button" onClick={() => void more()}>

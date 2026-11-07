@@ -27,6 +27,10 @@ Environment variables:
 | `VISUALSTORE_PASSWORD` | Login password. Required. |
 | `VISUALSTORE_COMPUTE_PROCESSES` | Number of compute children, default CPU count. |
 | `VISUALSTORE_PORT` | Listen port, default 8080. |
+| `VISUALSTORE_MODEL_DIR` | Directory with the ONNX models, default `/app/models` in the image (ADR-0005). |
+| `PUID` / `PGID` | User and group the container runs as, default 1000:1000 (ADR-0008). |
+| `FORWARDED_ALLOW_IPS` | Reverse proxy address, read by uvicorn so rate limiting sees client addresses. |
+| `VISUALSTORE_TEST_REQUIRE_MEDIA` | Test suites only: `1` turns a missing libvips/ffmpeg into a failure. |
 
 Every other runtime parameter is a per-profile Setting editable in the UI.
 
@@ -46,6 +50,8 @@ services:
       - /volume1/Images:/media/images
       - /volume1/Photos:/media/photos
 ```
+
+The image declares a `HEALTHCHECK` on `GET /api/system/health`, which answers 503 once the job scheduler has not ticked for 60 s (ADR-0008). The overview page flags a Folder whose container path is not a directory, so a wrong media mount after a migration is visible before any scan runs.
 
 Images are published to `ghcr.io/secretnest/visualstore` and to the same `secretnest/visualstore` path on Alibaba Cloud Container Registry ([ADR-0003](../decisions/0003-m1-implementation-choices.md)). Media directories for every profile are mounted into the same container; each profile's Folders point at their own mount paths. The initialisation machine and the NAS use the same compose file, changing only the host side of the mounts.
 

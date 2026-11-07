@@ -46,8 +46,16 @@ export default function FileDetail() {
     setError(null);
     try {
       const job = await post<Job>(path, body);
-      setNotice(`${what} queued as job ${job.id}. The page updates once it has run.`);
-      window.setTimeout(() => void load(), 2000);
+      setNotice(`${what} queued as job ${job.id}…`);
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => window.setTimeout(r, 500));
+        const j = await get<Job>(`/api/p/${name}/jobs/${job.id}`);
+        if (j.state === "done" || j.state === "failed" || j.state === "cancelled") {
+          setNotice(j.state === "done" ? `${what} done.` : `${what} ${j.state}: ${j.error ?? ""}`);
+          break;
+        }
+      }
+      await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : `Could not ${what.toLowerCase()}.`);
     }
@@ -74,7 +82,10 @@ export default function FileDetail() {
           <dt>Size</dt>
           <dd>{formatBytes(detail.size)}</dd>
           <dt>Type</dt>
-          <dd>{detail.media_type}</dd>
+          <dd>
+            {detail.media_type}
+            {detail.width && detail.height ? ` · ${detail.width}×${detail.height}` : ""}
+          </dd>
           <dt>State</dt>
           <dd>{detail.state}</dd>
           <dt>SHA-1</dt>
@@ -139,36 +150,38 @@ export default function FileDetail() {
       {detail.candidates.length === 0 ? (
         <p className="muted">No candidates.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Distance</th>
-              <th>Judgment</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.candidates.map((c) => (
-              <tr key={c.file_id}>
-                <td className="with-thumb">
-                  <Thumb name={name} fileId={c.file_id} />
-                  <Link to={`/p/${name}/files/${c.file_id}`}>{c.relative_path}</Link> <span className="muted">· {c.folder_name}</span>
-                </td>
-                <td>{c.distance.toFixed(3)}</td>
-                <td>{c.judgment.replace("_", " ")}</td>
-                <td className="actions">
-                  <button type="button" onClick={() => void judge(c.file_id, "related_keep")} disabled={c.judgment === "related_keep"}>
-                    Related, keep both
-                  </button>
-                  <button type="button" className="danger" onClick={() => void judge(c.file_id, "unrelated")}>
-                    Unrelated
-                  </button>
-                </td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Distance</th>
+                <th>Judgment</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {detail.candidates.map((c) => (
+                <tr key={c.file_id}>
+                  <td className="with-thumb">
+                    <Thumb name={name} fileId={c.file_id} />
+                    <Link to={`/p/${name}/files/${c.file_id}`}>{c.relative_path}</Link> <span className="muted">· {c.folder_name}</span>
+                  </td>
+                  <td>{c.distance.toFixed(3)}</td>
+                  <td>{c.judgment.replace("_", " ")}</td>
+                  <td className="actions">
+                    <button type="button" onClick={() => void judge(c.file_id, "related_keep")} disabled={c.judgment === "related_keep"}>
+                      Related, keep both
+                    </button>
+                    <button type="button" className="danger" onClick={() => void judge(c.file_id, "unrelated")}>
+                      Unrelated
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {notice && (
         <p className="muted" role="status">

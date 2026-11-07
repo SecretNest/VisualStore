@@ -175,3 +175,49 @@ def test_match_params_describe_the_index_on_disk_not_the_settings(world):  # noq
     )
     [m] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]
     assert json.loads(m["params"])["index"]["pca_dims"] == 16  # what the index on disk is
+
+
+def test_i8_rebuild_returns_the_same_nearest_neighbours_as_f16(world):  # noqa: F811
+    """Review Focus 1: quantisation must not change which files are near each other."""
+    from visualstore.index.usearch_index import VectorIndex
+
+    reg = world
+    conn, vconn = reg.conn("a"), reg.vectors_conn("a")
+    rng = np.random.default_rng(1)
+    clusters: dict[int, list[bytes]] = {}
+    for c in range(20):
+        base = rng.normal(size=512).astype(np.float32)
+        for j in range(3):
+            fid = bytes([c + 1, j + 1]) * 8
+            vec = base + rng.normal(scale=0.05, size=512).astype(np.float32)
+            vec /= np.linalg.norm(vec)
+            fingerprints.replace_frames(
+                vconn, fid, MODEL, [(0, 0, vec.astype(np.float16).tobytes())]
+            )
+            fingerprints.allocate_keys(vconn, fid, MODEL, [0])
+            clusters.setdefault(c, []).append(fid)
+    stored: dict[bytes, np.ndarray] = {}
+    key_of: dict[bytes, int] = {}
+    for rows in fingerprints.iter_vectors(vconn, MODEL):
+        for r in rows:
+            fid = bytes(r["file_id"])
+            stored[fid] = np.frombuffer(bytes(r["vector"]), dtype=np.float16).astype(np.float32)
+            key_of[fid] = int(r["seq"])
+
+    def neighbours(quantization: str) -> dict[bytes, set[int]]:
+        run_rebuild_index(ctx_for(reg))
+        [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+        params = json.loads(job["params"])
+        sink_build_index(make_sink_ctx(reg, "a", params, build_index(params, lambda p: None)))
+        jobs_db.mark_done(conn, job["id"])
+        index = VectorIndex.open_or_create(reg.paths("a").index, 512, quantization)
+        return {fid: {k for k, _ in index.search(vec, 3)} for fid, vec in stored.items()}
+
+    exact = neighbours("f16")
+    settings_db.set(conn, "index.quantization", "i8")
+    quantised = neighbours("i8")
+    assert inspect(reg.paths("a").index)["dtype"] == "i8"
+    for members in clusters.values():
+        expected = {key_of[fid] for fid in members}
+        for fid in members:
+            assert exact[fid] == expected == quantised[fid]

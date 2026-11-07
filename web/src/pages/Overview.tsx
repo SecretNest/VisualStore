@@ -49,8 +49,12 @@ export default function Overview() {
   }, [name, refresh]);
 
   async function backupNow() {
-    await post(`/api/p/${name}/backups`, {});
-    await refresh();
+    try {
+      await post(`/api/p/${name}/backups`, {});
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not queue the backup.");
+    }
   }
 
   if (error)
@@ -92,57 +96,67 @@ export default function Overview() {
           <p>{(data.usage_bytes / 1024 / 1024).toFixed(1)} MB on disk</p>
         </div>
       </div>
+      {data.folders.some((f) => f.enabled && !f.available) && (
+        <p className="error" role="alert">
+          Some Folder paths are not available inside the container: check the media mounts.
+        </p>
+      )}
       <h2>Folders</h2>
       {data.folders.length === 0 ? (
         <p className="muted">No Folders yet.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Folder</th>
-              <th>Role</th>
-              <th>New</th>
-              <th>Fingerprinted</th>
-              <th>Not media</th>
-              <th>Unreadable</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.folders.map((f) => (
-              <tr key={f.id} className={f.enabled ? "" : "muted"}>
-                <td>
-                  {f.name}
-                  {!f.enabled && <span className="tag">disabled</span>}
-                </td>
-                <td>{f.role}</td>
-                <td>{f.counts.new ?? 0}</td>
-                <td>{f.counts.fingerprinted ?? 0}</td>
-                <td>{f.counts.not_media ?? 0}</td>
-                <td>{f.counts.unreadable ?? 0}</td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Folder</th>
+                <th>Role</th>
+                <th>New</th>
+                <th>Fingerprinted</th>
+                <th>Not media</th>
+                <th>Unreadable</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.folders.map((f) => (
+                <tr key={f.id} className={f.enabled ? "" : "muted"}>
+                  <td>
+                    {f.name}
+                    {!f.enabled && <span className="tag">disabled</span>}
+                    {!f.available && <span className="tag danger">path not available</span>}
+                  </td>
+                  <td>{f.role}</td>
+                  <td>{f.counts.new ?? 0}</td>
+                  <td>{f.counts.fingerprinted ?? 0}</td>
+                  <td>{f.counts.not_media ?? 0}</td>
+                  <td>{f.counts.unreadable ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <h2>Recent jobs</h2>
       {data.recent_jobs.length === 0 ? (
         <p className="muted">No jobs yet.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>State</th>
-              <th>Error</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.recent_jobs.map((j) => (
-              <JobRow key={j.id} job={j} />
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>State</th>
+                <th>Error</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recent_jobs.map((j) => (
+                <JobRow key={j.id} job={j} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

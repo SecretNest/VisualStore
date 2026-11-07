@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
 import { formatBytes, formatWhen } from "../format";
@@ -6,6 +6,19 @@ import type { EvalReport, Folder, Job, ModelInfo, TrashEntry } from "../types";
 
 type Settings = Record<string, boolean | number | string>;
 const STATES = ["queued", "running", "done", "failed", "cancelled"];
+
+const FINISHED = new Set(["done", "failed", "cancelled"]);
+
+/** Record the finished job ids in `seen`; true when the list holds one not seen before. */
+function newlyFinished(seen: Set<string>, list: Job[]): boolean {
+  let fresh = false;
+  for (const j of list) {
+    if (!FINISHED.has(j.state) || seen.has(j.id)) continue;
+    seen.add(j.id);
+    fresh = true;
+  }
+  return fresh;
+}
 
 export default function Jobs() {
   const { name = "" } = useParams();
@@ -24,6 +37,7 @@ export default function Jobs() {
   const [reports, setReports] = useState<EvalReport[]>([]);
   const [evalForm, setEvalForm] = useState({ db_path: "", negatives: 5000 });
 
+  const finishedRef = useRef<Set<string>>(new Set());
   const load = useCallback(async () => {
     try {
       const q = stateFilter ? `?state=${stateFilter}&limit=100` : "?limit=100";
@@ -36,6 +50,7 @@ export default function Jobs() {
         get<EvalReport[]>(`/api/p/${name}/eval/reports`),
       ]);
       setJobs(j);
+      newlyFinished(finishedRef.current, j);
       setSettings(s);
       setTrash(t);
       setFolders(f);
@@ -47,13 +62,26 @@ export default function Jobs() {
     }
   }, [name, stateFilter]);
 
+  // The poll fetches only the job list; the trash, folders, models and report are reloaded
+  // once a job finishes, since that is when they can have changed.
+  const loadJobs = useCallback(async () => {
+    try {
+      const q = stateFilter ? `?state=${stateFilter}&limit=100` : "?limit=100";
+      const list = await get<Job[]>(`/api/p/${name}/jobs${q}`);
+      setJobs(list);
+      if (newlyFinished(finishedRef.current, list)) await load();
+    } catch {
+      /* the next full load reports errors */
+    }
+  }, [name, stateFilter, load]);
+
   useEffect(() => {
     void load();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void loadJobs(); // only the job list moves
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, loadJobs]);
 
   async function run(action: () => Promise<unknown>, done?: string) {
     setError(null);
@@ -127,112 +155,116 @@ export default function Jobs() {
           ))}
         </select>
       </label>
-      <table>
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>State</th>
-            <th>Progress</th>
-            <th>Error</th>
-            <th>Created</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((j) => (
-            <tr key={j.id} className={`job-${j.state}`}>
-              <td>{j.type}</td>
-              <td>
-                {j.state}
-                {j.attempts > 0 && ` (attempt ${j.attempts})`}
-              </td>
-              <td className="muted">
-                {j.progress.total ? `${j.progress.done ?? 0}/${j.progress.total} ` : ""}
-                {j.progress.message ?? ""}
-                {j.state === "queued" && j.not_before && ` · retrying at ${formatWhen(j.not_before)}`}
-                {j.state === "done" && j.progress.result !== undefined && (
-                  <details>
-                    <summary>result</summary>
-                    <pre className="result">{JSON.stringify(j.progress.result, null, 1)}</pre>
-                  </details>
-                )}
-              </td>
-              <td className="muted">{j.error ?? ""}</td>
-              <td className="muted">{formatWhen(j.created_at)}</td>
-              <td className="actions">
-                {j.state === "failed" && (
-                  <button type="button" onClick={() => void run(() => post(`/api/p/${name}/jobs/${j.id}/retry`))}>
-                    Retry
-                  </button>
-                )}
-                {j.state === "queued" && (
-                  <button type="button" onClick={() => void run(() => post(`/api/p/${name}/jobs/${j.id}/cancel`))}>
-                    Cancel
-                  </button>
-                )}
-              </td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>State</th>
+              <th>Progress</th>
+              <th>Error</th>
+              <th>Created</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {jobs.map((j) => (
+              <tr key={j.id} className={`job-${j.state}`}>
+                <td>{j.type}</td>
+                <td>
+                  {j.state}
+                  {j.attempts > 0 && ` (attempt ${j.attempts})`}
+                </td>
+                <td className="muted">
+                  {j.progress.total ? `${j.progress.done ?? 0}/${j.progress.total} ` : ""}
+                  {j.progress.message ?? ""}
+                  {j.state === "queued" && j.not_before && ` · retrying at ${formatWhen(j.not_before)}`}
+                  {j.state === "done" && j.progress.result !== undefined && (
+                    <details>
+                      <summary>result</summary>
+                      <pre className="result">{JSON.stringify(j.progress.result, null, 1)}</pre>
+                    </details>
+                  )}
+                </td>
+                <td className="muted">{j.error ?? ""}</td>
+                <td className="muted">{formatWhen(j.created_at)}</td>
+                <td className="actions">
+                  {j.state === "failed" && (
+                    <button type="button" onClick={() => void run(() => post(`/api/p/${name}/jobs/${j.id}/retry`))}>
+                      Retry
+                    </button>
+                  )}
+                  {j.state === "queued" && (
+                    <button type="button" onClick={() => void run(() => post(`/api/p/${name}/jobs/${j.id}/cancel`))}>
+                      Cancel
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h2>Settings</h2>
-      <table>
-        <tbody>
-          {Object.entries(settings).map(([key, value]) => (
-            <tr key={key}>
-              <td>
-                <code>{key}</code>
-              </td>
-              <td>
-                {key === "index.quantization" ? (
-                  <select
-                    aria-label={key}
-                    value={String(value)}
-                    onChange={(e) =>
-                      void run(async () => {
-                        const r = await put<{ rebuild_queued?: boolean }>(`/api/p/${name}/settings/${key}`, {
-                          value: e.target.value,
-                        });
-                        if (r.rebuild_queued) setNotice("Index option changed: a rebuild has been queued.");
-                      })
-                    }
-                  >
-                    <option value="f16">f16 (2 bytes per dimension)</option>
-                    <option value="i8">i8 (1 byte per dimension, less exact)</option>
-                  </select>
-                ) : typeof value === "string" ? (
-                  <code>{value}</code>
-                ) : typeof value === "boolean" ? (
-                  <input
-                    type="checkbox"
-                    aria-label={key}
-                    checked={value}
-                    onChange={(e) => void run(() => put(`/api/p/${name}/settings/${key}`, { value: e.target.checked }))}
-                  />
-                ) : (
-                  <input
-                    type="number"
-                    aria-label={key}
-                    defaultValue={value}
-                    step={Number.isInteger(value) ? 1 : 0.01}
-                    onBlur={(e) => {
-                      const n = Number(e.target.value);
-                      if (n !== value)
+      <div className="table-wrap">
+        <table>
+          <tbody>
+            {Object.entries(settings).map(([key, value]) => (
+              <tr key={key}>
+                <td>
+                  <code>{key}</code>
+                </td>
+                <td>
+                  {key === "index.quantization" ? (
+                    <select
+                      aria-label={key}
+                      value={String(value)}
+                      onChange={(e) =>
                         void run(async () => {
                           const r = await put<{ rebuild_queued?: boolean }>(`/api/p/${name}/settings/${key}`, {
-                            value: Number.isInteger(value) ? Math.round(n) : n,
+                            value: e.target.value,
                           });
                           if (r.rebuild_queued) setNotice("Index option changed: a rebuild has been queued.");
-                        });
-                    }}
-                  />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                        })
+                      }
+                    >
+                      <option value="f16">f16 (2 bytes per dimension)</option>
+                      <option value="i8">i8 (1 byte per dimension, less exact)</option>
+                    </select>
+                  ) : typeof value === "string" ? (
+                    <code>{value}</code>
+                  ) : typeof value === "boolean" ? (
+                    <input
+                      type="checkbox"
+                      aria-label={key}
+                      checked={value}
+                      onChange={(e) => void run(() => put(`/api/p/${name}/settings/${key}`, { value: e.target.checked }))}
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      aria-label={key}
+                      defaultValue={value}
+                      step={Number.isInteger(value) ? 1 : 0.01}
+                      onBlur={(e) => {
+                        const n = Number(e.target.value);
+                        if (n !== value)
+                          void run(async () => {
+                            const r = await put<{ rebuild_queued?: boolean }>(`/api/p/${name}/settings/${key}`, {
+                              value: Number.isInteger(value) ? Math.round(n) : n,
+                            });
+                            if (r.rebuild_queued) setNotice("Index option changed: a rebuild has been queued.");
+                          });
+                      }}
+                    />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h2>Model</h2>
       <p className="muted">
@@ -303,36 +335,38 @@ export default function Jobs() {
               Restore selected ({selectedTrash.size})
             </button>
           </div>
-          <table>
-            <tbody>
-              {trash.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`select ${String(t.before.relative_path)}`}
-                      checked={selectedTrash.has(t.id)}
-                      onChange={(e) => {
-                        const next = new Set(selectedTrash);
-                        if (e.target.checked) next.add(t.id);
-                        else next.delete(t.id);
-                        setSelectedTrash(next);
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <code>{String(t.before.relative_path)}</code>
-                  </td>
-                  <td className="muted">{formatWhen(t.at)}</td>
-                  <td className="actions">
-                    <button type="button" onClick={() => restore([t.id])}>
-                      Restore
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table>
+              <tbody>
+                {trash.map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`select ${String(t.before.relative_path)}`}
+                        checked={selectedTrash.has(t.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedTrash);
+                          if (e.target.checked) next.add(t.id);
+                          else next.delete(t.id);
+                          setSelectedTrash(next);
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <code>{String(t.before.relative_path)}</code>
+                    </td>
+                    <td className="muted">{formatWhen(t.at)}</td>
+                    <td className="actions">
+                      <button type="button" onClick={() => restore([t.id])}>
+                        Restore
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 

@@ -95,7 +95,13 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
       - name: Browsers
-        run: cd web && npx playwright install --with-deps chromium
+        run: |
+          cd web
+          for attempt in 1 2 3; do
+            if timeout 300 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $attempt failed; retrying"; sleep 15
+          done
+          exit 1
       - name: End to end
         run: cd web && npm run e2e
       - uses: actions/upload-artifact@v4

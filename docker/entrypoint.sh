@@ -13,4 +13,5 @@ for dir in "${VISUALSTORE_DATA_DIR:-/data}" "${VISUALSTORE_BACKUP_DIR:-/backups}
   mkdir -p "$dir"
   if [ -z "$(ls -A "$dir")" ]; then chown "$PUID:$PGID" "$dir"; fi
 done
+export HOME=/tmp  # the dropped user has no home; onnxruntime wants a writable one
 exec setpriv --reuid="$PUID" --regid="$PGID" --init-groups "$@"

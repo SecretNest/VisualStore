@@ -52,3 +52,7 @@ group a human has judged ("keep both") is never resolved by a bulk run.
 Deleted files go to `.visualstore-trash/<yyyy-mm>/` under their Folder root, keeping the
 relative path, for `trash.retention_days` (30). **Jobs → Trash** lists them; **Restore** puts a
 file back with its id, hashes and judgments and queues its vectors again.
+
+Deleting or moving files can leave empty directories behind. **Folders → Clean empty
+directories** queues a job that removes them bottom-up under that Folder; the trash directory
+is never touched.

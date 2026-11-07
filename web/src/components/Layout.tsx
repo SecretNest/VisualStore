@@ -17,13 +17,14 @@ export default function Layout() {
   const navigate = useNavigate();
   const { name } = useParams();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const reloadProfiles = useCallback(async () => {
     try {
       setProfiles(await get<Profile[]>("/api/profiles"));
     } catch (err) {
       if (err instanceof Unauthorized) navigate("/login", { replace: true });
-      else throw err;
+      else setLoadError(err instanceof Error ? err.message : "Could not reach the server.");
     }
   }, [navigate]);
 
@@ -38,8 +39,11 @@ export default function Layout() {
   }, [navigate]);
 
   async function logout() {
-    await post("/api/auth/logout");
-    navigate("/login", { replace: true });
+    try {
+      await post("/api/auth/logout");
+    } finally {
+      navigate("/login", { replace: true });
+    }
   }
 
   function switchProfile(next: string) {
@@ -47,7 +51,17 @@ export default function Layout() {
     navigate(`/p/${next}/overview`);
   }
 
-  if (profiles === null) return <p className="muted">Loading…</p>;
+  if (profiles === null)
+    return loadError ? (
+      <p className="error" role="alert">
+        {loadError}{" "}
+        <button type="button" className="link" onClick={() => void reloadProfiles()}>
+          Retry
+        </button>
+      </p>
+    ) : (
+      <p className="muted">Loading…</p>
+    );
 
   return (
     <>

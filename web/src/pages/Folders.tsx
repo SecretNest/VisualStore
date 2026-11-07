@@ -90,6 +90,15 @@ export default function Folders() {
             >
               Scan now
             </button>
+            <button
+              type="button"
+              onClick={() =>
+                void run(() => post(`/api/p/${name}/folders/${f.id}/clean-empty-directories`), "Empty-directory cleanup queued.")
+              }
+              disabled={!f.enabled}
+            >
+              Clean empty directories
+            </button>
             <select aria-label={`Role of ${f.name}`} value={f.role} onChange={(e) => patchFolder(f, { role: e.target.value })}>
               <option value="inbox">inbox</option>
               <option value="archive">archive</option>
@@ -214,35 +223,37 @@ export default function Folders() {
       </form>
 
       <h2>Extensions</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Extension</th>
-            <th>Media type</th>
-            <th>Enabled</th>
-          </tr>
-        </thead>
-        <tbody>
-          {extensions.map((x) => (
-            <tr key={x.id}>
-              <td>
-                <code>{x.extension}</code>
-              </td>
-              <td>{x.media_type}</td>
-              <td>
-                <input
-                  type="checkbox"
-                  aria-label={`Enable ${x.extension}`}
-                  checked={x.enabled}
-                  onChange={(e) =>
-                    void run(() => patch(`/api/p/${name}/extensions/${x.id}`, { enabled: e.target.checked }))
-                  }
-                />
-              </td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Extension</th>
+              <th>Media type</th>
+              <th>Enabled</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {extensions.map((x) => (
+              <tr key={x.id}>
+                <td>
+                  <code>{x.extension}</code>
+                </td>
+                <td>{x.media_type}</td>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Enable ${x.extension}`}
+                    checked={x.enabled}
+                    onChange={(e) =>
+                      void run(() => patch(`/api/p/${name}/extensions/${x.id}`, { enabled: e.target.checked }))
+                    }
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <form
         className="inline"
         onSubmit={(e) => {

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ---- frontend build --------------------------------------------------------------------
-FROM node:22-bookworm-slim AS web
+# built on the build host's own platform: the Vite output is architecture-independent
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -38,7 +39,7 @@ RUN chmod 755 /app/models
 COPY visualstore/ ./visualstore/
 COPY --from=web /src/visualstore/static ./visualstore/static
 COPY README.md LICENSE ./
-COPY scripts/ ./scripts/
+COPY scripts/measure_index.py ./scripts/measure_index.py
 RUN uv sync --frozen --no-dev --no-editable
 
 COPY docker/check-media-support.py ./docker/

@@ -52,8 +52,9 @@ The thresholds are provisional until you run the evaluation on your own judgment
 | `jobs.keep_days` | 7 | Done and cancelled jobs are forgotten after this many days (failed ones after four times as long). |
 
 Changing an index option queues a full rebuild; stored vectors are untouched. Index size per
-frame: dimension × bytes per dimension plus about 100 bytes of graph. For a million stills:
-about 1 GB at `f16`/512, 0.5 GB at `i8`/512, 0.25 GB at `i8`/256. Measure recall for your own
+frame: dimension × bytes per dimension plus about 150 bytes of graph (measured: 1.2 KB at
+`f16`/512, 0.66 KB at `i8`/512, 0.4 KB at `i8`/256). For a million stills: about 1.2 GB,
+0.66 GB and 0.4 GB respectively. Measure recall for your own
 vectors before choosing:
 
 ```bash

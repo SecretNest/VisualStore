@@ -47,8 +47,12 @@ export default function Profiles() {
   async function rename(p: Profile) {
     const next = window.prompt("Display name", p.display_name);
     if (!next || next === p.display_name) return;
-    await patch(`/api/profiles/${p.name}`, { display_name: next });
-    await reloadProfiles();
+    try {
+      await patch(`/api/profiles/${p.name}`, { display_name: next });
+      await reloadProfiles();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not rename the profile.");
+    }
   }
 
   async function remove(e: FormEvent) {
@@ -79,37 +83,39 @@ export default function Profiles() {
         </p>
       )}
       {profiles.length === 0 && <p>No profiles yet. Create one to get started.</p>}
-      <table>
-        <tbody>
-          {profiles.map((p) => (
-            <tr key={p.name}>
-              <td>
-                <strong>{p.display_name}</strong> <code>{p.name}</code>
-              </td>
-              <td className="muted">
-                {usage[p.name] === undefined ? "…" : formatBytes(usage[p.name])}
-              </td>
-              <td className="actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLastProfile(p.name);
-                    navigate(`/p/${p.name}/overview`);
-                  }}
-                >
-                  Open
-                </button>
-                <button type="button" onClick={() => rename(p)}>
-                  Rename
-                </button>
-                <button type="button" className="danger" onClick={() => setDeleting(p)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table>
+          <tbody>
+            {profiles.map((p) => (
+              <tr key={p.name}>
+                <td>
+                  <strong>{p.display_name}</strong> <code>{p.name}</code>
+                </td>
+                <td className="muted">
+                  {usage[p.name] === undefined ? "…" : formatBytes(usage[p.name])}
+                </td>
+                <td className="actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLastProfile(p.name);
+                      navigate(`/p/${p.name}/overview`);
+                    }}
+                  >
+                    Open
+                  </button>
+                  <button type="button" onClick={() => rename(p)}>
+                    Rename
+                  </button>
+                  <button type="button" className="danger" onClick={() => setDeleting(p)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h2>New profile</h2>
       <form onSubmit={create} className="inline">

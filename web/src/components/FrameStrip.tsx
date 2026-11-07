@@ -21,20 +21,20 @@ export default function FrameStrip({ name, fileId, picked, onPick }: { name: str
   }, [name, fileId]);
   if (!frames || frames.frames.length < 2) return null;
   return (
-    <div className="frame-strip" role="list" aria-label="Frames">
+    <ul className="frame-strip" aria-label="Frames">
       {frames.frames.map((f) => (
-        <button
-          key={f.index}
-          type="button"
-          role="listitem"
-          className={picked === f.index ? "active" : ""}
-          onClick={() => onPick(f.index)}
-          title={`Frame ${f.index} at ${formatFrameTime(f.time_ms)}`}
-        >
-          <img src={`/api/p/${name}/files/${fileId}/frame/${f.index}`} alt="" width={64} height={64} />
-          <span>{formatFrameTime(f.time_ms)}</span>
-        </button>
+        <li key={f.index}>
+          <button
+            type="button"
+            className={picked === f.index ? "active" : ""}
+            onClick={() => onPick(f.index)}
+            title={`Frame ${f.index} at ${formatFrameTime(f.time_ms)}`}
+          >
+            <img src={`/api/p/${name}/files/${fileId}/frame/${f.index}`} alt="" width={64} height={64} />
+            <span>{formatFrameTime(f.time_ms)}</span>
+          </button>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

@@ -21,7 +21,7 @@ Folders must not nest; use IgnoredDirectory when nesting would otherwise be need
 
 **File**
 `id`, `folder_id`, `directory` (relative path, `""` for the root), `name`, `extension_id`, `size`, `mtime`, `sha1`, `state`, `created_at`.
-`state`: `new` (just scanned) / `fingerprinted` / `unreadable` / `not_media` / `missing` (not found during scan, pending confirmed deletion).
+`state`: `new` (just scanned) / `fingerprinted` / `unreadable` / `not_media`. (`missing` is reserved and unused: a scan deletes the rows of vanished files directly, with their derived images.)
 Unique index on `(folder_id, directory, name)`, case-insensitive (SQLite `COLLATE NOCASE`, ASCII folding only; this defines path comparison).
 
 **Fingerprint** (in `vectors.db`)
@@ -40,7 +40,7 @@ Pairs imported from v1 carry `judgment_origin = import_v1`; the review queue ide
 Groups are connected components over Pairs, see [05 §7.5](05-pipeline.md#75-grouping-regroup).
 
 **Job**
-`id`, `type`, `params` (JSON), `state` (`queued` / `running` / `done` / `failed` / `cancelled`), `priority`, `kind` (`io` / `compute`), `attempts`, `progress` (JSON: done / total / message), `error`, `created_at`, `started_at`, `finished_at`.
+`id`, `type`, `params` (JSON), `state` (`queued` / `running` / `done` / `failed` / `cancelled`), `priority`, `kind` (`io` / `compute`), `attempts`, `progress` (JSON: done / total / message, plus a compact `result` once the job is done), `error`, `created_at`, `started_at`, `finished_at`.
 
 **Action** (audit and undo)
 `id`, `type` (`trash` / `restore` / `move` / `rename` / `purge`), `file_id`, `before` (JSON), `after` (JSON), `at`.

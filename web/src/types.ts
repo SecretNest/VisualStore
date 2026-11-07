@@ -32,6 +32,7 @@ export interface Overview {
     name: string;
     role: "archive" | "inbox";
     enabled: boolean;
+    available: boolean;
     counts: Record<string, number>;
   }[];
   groups: Record<string, number>;
@@ -81,6 +82,8 @@ export interface GroupMember {
   relative_path: string;
   absolute_path: string;
   media_type: "image" | "animated" | "video" | "other";
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface FrameInfo {
@@ -179,6 +182,8 @@ export interface FileDetail {
   sha1: string | null;
   state: string;
   media_type: "image" | "animated" | "video" | "other";
+  width?: number | null;
+  height?: number | null;
   relative_path: string;
   absolute_path: string;
   group_id: string | null;

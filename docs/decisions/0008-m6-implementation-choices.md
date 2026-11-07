@@ -26,6 +26,10 @@ The milestone 6 task-level plan listed decisions to take before expansion: index
 - **Cookie `Secure` flag**: VisualStore speaks plain HTTP behind the operator's TLS-terminating proxy (README "Behind a reverse proxy"); a `Secure` cookie would break the documented deployment. Not changed.
 - **Concurrent-writer backup test**: already covered by `test_backup_taken_during_live_writes_is_complete_and_consistent` since milestone 1. Nothing to add.
 
+## Polish pass after the audit (2026-11-07)
+
+The deferred minors of the audit were worked through on the `polish` branch (version 0.2.0). Behaviour changes: logout invalidates every session issued before it (a per-registry stamp, so a replayed cookie fails); a profile with running jobs refuses deletion; derived images (thumbnail, preview, frames) go with the file on trash, scan deletion and Folder deletion instead of waiting for the weekly sweep; a `clean_empty_dirs` job; file dimensions stored at fingerprint time and shown in the review UI; the overview flags Folders whose path is not a directory; the Jobs page polls only the job list; component tests run under jsdom next to the pure-function tests. Retired without change: a static ffmpeg build (the Debian package is enough and tracks security updates), the "APNG decoded twice" note (pages are decoded once, dimensions come from the probe), the positional PNG zip in the animated loader (rewritten with the delays), and re-hashing on v1 import (the import keeps v1's SHA-1 and the first scan verifies it).
+
 ## Facts learned while shipping
 
 - usearch reports the scalar kind in `Index.metadata()["kind_scalar"]` as a `ScalarKind` enum; `inspect()` maps it to the setting names (`f16`, `i8`).
