@@ -23,7 +23,7 @@ The milestone 6 task-level plan listed decisions to take before expansion: index
 
 ## Deferred minors retired
 
-- **Cookie `Secure` flag**: VisualStore speaks plain HTTP behind the operator's TLS-terminating proxy (README "Behind a reverse proxy"); a `Secure` cookie would break the documented deployment. Not changed.
+- **Cookie `Secure` flag**: VisualStore speaks plain HTTP behind the operator's TLS-terminating proxy (user guide, [deployment: reverse proxy and HTTPS](../user/deployment.md#reverse-proxy-and-https)); a `Secure` cookie would break the documented deployment. Not changed.
 - **Concurrent-writer backup test**: already covered by `test_backup_taken_during_live_writes_is_complete_and_consistent` since milestone 1. Nothing to add.
 
 ## Polish pass after the audit (2026-11-07)
@@ -54,3 +54,71 @@ Two fresh auditors reviewed the whole codebase after milestone 6 (backend core; 
 - **Tests and CI.** `VISUALSTORE_TEST_REQUIRE_MEDIA=1` (set in CI and in the test image) turns a missing libvips/ffmpeg into a failure instead of a skip; a two-profile isolation test covers design §10's bullet.
 
 Not changed, by decision: sessions stay bearer tokens until expiry (logout clears the cookie only); thumbnails of trashed files are swept weekly rather than on deletion; the `missing` file state of design §5.1 is not materialised (the scan deletes rows directly, as ADR-0004 decided); `IgnoredDirectory` ids are regenerated on import; rebuild memory (vectors held twice during export) is accepted for the NAS-side restore case.
+
+## Second audit (2026-11-07, version 0.2.1)
+
+Three fresh auditors (backend core; frontend and API contract; operations, docs, tests and CI)
+reviewed `main` at 0.2.0. Everything they rated Important was fixed the same day; the retest
+of the index uncovered one more defect.
+
+**Backend.** The rebuild export is a snapshot up to the highest live key at its start; keys the
+fingerprint sink writes meanwhile are left to `match_unindexed` instead of entering the export as
+zero vectors. The dirty queue carries a generation (profile migration 0005): a mark set while a
+regroup batch runs survives that batch, so a judgment made during the regroup is applied by the
+next pass. A file the compute child cannot open (`OSError`, including not-found) is reported as
+`retry` and the sink leaves its row alone; the next scan decides, instead of a permanent
+`missing`/`unreadable` without hash. An interrupted v1 import undoes its Folders on the retried
+attempt and starts over; a finished import re-run by hand is still refused. `match`,
+`build_index`, `apply_action`, `bulk_resolve`, `folder_delete` and `model_switch` cannot be
+cancelled through the API, and the start-up check queues a rebuild when the index holds fewer
+keys than the vector database with no match job pending (also the case of a `vectors.db`
+restored older than the index). `purge_trash` continues past a file it cannot remove and
+reports the failures at the end. Changing `grouping.group_distance` marks every paired file
+dirty, so groups are re-formed at the new distance. The two remaining unchunked `IN` clauses
+are chunked; `plan_regroup` does not re-enqueue while the latest regroup is failed (the
+operator's retry lifts the hold); a raise while finishing a job records the failure instead of
+leaving the job `running`; a model switch re-queues files still `new`; dismissing a group keeps
+an explicit `unrelated` judgment; float settings accept whole numbers (JSON has one number
+type).
+
+**usearch add is single-threaded.** While retesting the i8 rebuild, the neighbour test failed on
+unmodified code: with usearch 2.26.6, a multi-threaded `Index.add` builds a graph that misses
+about one exact near-duplicate in a few hundred queries (measured with 60–3000 clustered
+vectors, bulk and incremental, f16 and i8 alike); `threads=1` is exact and about 1.5× slower.
+`VectorIndex.add` passes `threads=1`; recall is the product, and the build runs in a compute
+child. `test_i8_rebuild_returns_the_same_nearest_neighbours_as_f16` is the regression test.
+
+**Frontend.** The review-key handler leaves a focused button or link its own Enter/Space and
+ignores Ctrl/Cmd/Alt chords; the previous group's members are cleared when the URL changes and a
+response for an earlier group is dropped (numbered requests). Archive move checks for open
+groups of the source Folder before queuing and reports the job's `skipped` note; file actions
+and the archive move wait for their job and show its outcome. "Load more" stops when a page is
+short and reports errors; destructive buttons are disabled while their request runs; the
+overview keeps its data through a poll hiccup; thumbnails retry three times while a scan is
+still producing them; validation errors render their messages; "Mark unrelated" is disabled
+when the two files have no pair of their own; byte-identical members carry a tag. Component
+tests under jsdom now cover the group-detail keyboard handling and navigation.
+
+**Operations.** `__version__` comes from the installed distribution (one source: `pyproject.toml`)
+with a unit test and a CI check that the image reports the pyproject version — the 0.2.0 image
+had announced itself as 0.1.0. The publish workflow refuses a typed version that differs from
+`pyproject.toml` unless forced, makes moving `latest` an input, and serialises dispatches. CI
+builds the test stage and exercises the entrypoint (PUID/PGID, `HOME`); it has read-only token
+permissions and cancels superseded runs. The compose example sets `init: true` and
+`stop_grace_period: 2m`; a backup removes `.tmp` copies a killed run left behind; `.env` and test
+artefacts are excluded from the build context. Documentation drift (project layout, backup
+scope including `pca.npz`, `previews/` and `reports/`, the restore guide, the deployment and
+testing chapters, the import guide's sentence on thresholds) was corrected.
+
+**Test suite.** The two rehearsal tests still selected the tiny model through `PUT
+settings/model.id`, which the first audit had turned into a 400: they had silently been running
+against the real SSCD model, downloading it from GitHub on every run (40–60 s, flaky under load).
+They now switch through `/model-switch` and take under ten seconds offline.
+
+**Noted, not changed.** Restoring a trashed file does not bring its pair judgments back (the
+pair rows are recreated by the next match with judgment `none`); a trash action would have to
+snapshot them. Every `match` job loads the whole index into the compute child and rewrites the
+file; whether that fits design §9.5 at a million files is the operator's measurement. A long
+`VACUUM` or import rollback on the io thread can hold the loop's SQLite writes past the busy
+timeout; `VACUUM` runs only when no other job is active. The runtime image still ships `uv` and a
+second copy of the package tree.

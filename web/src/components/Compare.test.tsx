@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
+afterEach(cleanup);
 import Compare from "./Compare";
 
 function images(container: HTMLElement): HTMLImageElement[] {

@@ -61,7 +61,9 @@ def test_data_directory_moves_without_repair(tmp_path):
     with TestClient(create_app(make_config(first_root, model_dir))) as client:
         login(client)
         assert client.post("/api/profiles", json={"name": "demo"}).status_code == 201
-        client.put("/api/p/demo/settings/model.id", json={"value": spec.id})
+        # model.id is not a PUT setting (ADR-0008): switch through the job, which also queues vectors
+        assert client.post("/api/p/demo/model-switch", json={"model_id": spec.id}).status_code == 201
+        wait_idle(client, "demo")
         body = {"name": "Lib", "path": str(media), "role": "inbox", "compare_scope": "all"}
         folder = client.post("/api/p/demo/folders", json=body).json()
         client.post(f"/api/p/demo/folders/{folder['id']}/scan")

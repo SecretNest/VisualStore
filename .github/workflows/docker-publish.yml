@@ -7,6 +7,19 @@ on:
       version:
         description: "Version tag to publish. Leave empty to use [project].version from pyproject.toml."
         required: false
+      force:
+        description: "Publish even if the typed version differs from pyproject.toml (the image would report the pyproject version)."
+        type: boolean
+        default: false
+      move_latest:
+        description: "Also move the `latest` tag to this build. Leave off when republishing an older version."
+        type: boolean
+        default: true
+
+# Two dispatches must not race on the `latest` and `buildcache` tags.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/secretnest/visualstore
@@ -44,16 +57,19 @@ jobs:
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
-          v="$INPUT_VERSION"
-          if [ -z "$v" ]; then
-            v="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
-          fi
+          declared="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          v="${INPUT_VERSION:-$declared}"
           case "$v" in
             '') echo "::error::No version found in pyproject.toml and none supplied."; exit 1 ;;
             *[!0-9.]*|.*|*.) echo "::error::Version '$v' is not a dotted numeric version."; exit 1 ;;
           esac
+          if [ "$v" != "$declared" ] && [ "$INPUT_FORCE" != "true" ]; then
+            echo "::error::Typed version '$v' differs from pyproject.toml ('$declared'); the image would report '$declared'. Bump pyproject.toml or tick 'force'."
+            exit 1
+          fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Compute tags
@@ -65,7 +81,7 @@ jobs:
             ${{ env.ACR_IMAGE }}
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ inputs.move_latest }}
 
       - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v6

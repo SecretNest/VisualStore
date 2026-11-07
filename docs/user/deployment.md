@@ -46,6 +46,9 @@ Rules that matter:
   set `PUID`/`PGID` to the owner of existing directories. If a directory is not writable the
   container exits immediately with a message naming it.
 
+The example sets `init: true` (a killed compute child is reaped) and `stop_grace_period: 2m` (a
+backup, VACUUM or bulk job in flight finishes before the container is killed); keep both.
+
 ## Environment variables
 
 | Variable | Default | Meaning |

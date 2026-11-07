@@ -2,12 +2,11 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
 import { formatBytes, formatWhen } from "../format";
+import { FINISHED, jobOutcome, waitForJob } from "../jobs";
 import type { EvalReport, Folder, Job, ModelInfo, TrashEntry } from "../types";
 
 type Settings = Record<string, boolean | number | string>;
 const STATES = ["queued", "running", "done", "failed", "cancelled"];
-
-const FINISHED = new Set(["done", "failed", "cancelled"]);
 
 /** Record the finished job ids in `seen`; true when the list holds one not seen before. */
 function newlyFinished(seen: Set<string>, list: Job[]): boolean {
@@ -77,8 +76,14 @@ export default function Jobs() {
 
   useEffect(() => {
     void load();
+    let ticks = 0;
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadJobs(); // only the job list moves
+      if (document.visibilityState !== "visible") return;
+      ticks += 1;
+      // The job list moves; the rest follows a finished job, or every 30 s in case the state
+      // filter hides finished jobs from the trigger.
+      if (ticks % 10 === 0) void load();
+      else void loadJobs();
     }, 3000);
     return () => window.clearInterval(timer);
   }, [load, loadJobs]);
@@ -102,8 +107,15 @@ export default function Jobs() {
       .map((d) => d.trim())
       .filter(Boolean);
     void run(async () => {
+      // Design §8.5: the inbox must have no open groups; say so before queuing anything.
+      const open = await get<{ id: string }[]>(`/api/p/${name}/groups?status=open&folder_id=${move.source_folder_id}&limit=1`);
+      if (open.length) throw new ApiError(409, "Open groups still contain files of this Folder: resolve them first.");
       const job = await post<Job>(`/api/p/${name}/archive-move`, { ...move, directories });
       setNotice(`Archive move queued as job ${job.id}.`);
+      const finished = await waitForJob(name, job.id, 20);
+      const outcome = jobOutcome(finished);
+      if (outcome) setError(`Archive move: ${outcome}`);
+      else if (finished.state === "done") setNotice(`Archive move done (job ${job.id}).`);
     });
   }
 

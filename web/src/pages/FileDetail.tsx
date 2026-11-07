@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
 import Thumb from "../components/Thumb";
 import { formatBytes } from "../format";
+import { jobOutcome, waitForJob } from "../jobs";
 import type { FileDetail as Detail, Folder, Job } from "../types";
 
 export default function FileDetail() {
@@ -14,13 +15,25 @@ export default function FileDetail() {
   const [newName, setNewName] = useState("");
   const [moveTo, setMoveTo] = useState({ folder_id: "", directory: "" });
 
+  const formsFor = useRef<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const load = useCallback(async () => {
     try {
       const [d, f] = await Promise.all([get<Detail>(`/api/p/${name}/files/${fileId}`), get<Folder[]>(`/api/p/${name}/folders`)]);
       setDetail(d);
       setFolders(f);
-      setNewName(d.name);
-      setMoveTo({ folder_id: d.folder_id, directory: d.directory });
+      if (formsFor.current !== d.id) {
+        // only when a different file is shown: a reload after a judgment keeps what was typed
+        formsFor.current = d.id;
+        setNewName(d.name);
+        setMoveTo({ folder_id: d.folder_id, directory: d.directory });
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load the file.");
@@ -47,14 +60,11 @@ export default function FileDetail() {
     try {
       const job = await post<Job>(path, body);
       setNotice(`${what} queued as job ${job.id}…`);
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => window.setTimeout(r, 500));
-        const j = await get<Job>(`/api/p/${name}/jobs/${job.id}`);
-        if (j.state === "done" || j.state === "failed" || j.state === "cancelled") {
-          setNotice(j.state === "done" ? `${what} done.` : `${what} ${j.state}: ${j.error ?? ""}`);
-          break;
-        }
-      }
+      const finished = await waitForJob(name, job.id);
+      if (!mounted.current) return;
+      const outcome = jobOutcome(finished);
+      setNotice(finished.state === "done" && !outcome ? `${what} done.` : `${what} ${finished.state}: ${outcome ?? ""}`);
+      formsFor.current = null; // the file was renamed or moved: show its new name and place
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : `Could not ${what.toLowerCase()}.`);

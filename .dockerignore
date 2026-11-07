@@ -12,3 +12,7 @@ backups
 docs
 *.md
 !README.md
+.env
+**/.env
+web/test-results
+web/e2e/.media-path

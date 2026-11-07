@@ -29,6 +29,8 @@ export default function Groups() {
   const [bandFilter, setBandFilter] = useState("");
   const [minSize, setMinSize] = useState(2);
   const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [executing, setExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkPreview | null>(null);
   const [typed, setTyped] = useState("");
@@ -59,15 +61,19 @@ export default function Groups() {
     }
   }, [name]);
 
+  const requestRef = useRef(0);
   const load = useCallback(async () => {
+    const request = ++requestRef.current;
     try {
       const [first, c, f] = await Promise.all([
         get<Group[]>(query(0)),
         get<Counts>(`/api/p/${name}/groups/counts`),
         get<Folder[]>(`/api/p/${name}/folders`),
       ]);
+      if (request !== requestRef.current) return; // a newer filter is already loading
       setGroups(first);
       setOffset(first.length);
+      setHasMore(first.length === PAGE);
       setCounts(c);
       setFolders(f);
       setError(null);
@@ -106,8 +112,9 @@ export default function Groups() {
   }
 
   async function executeBulk() {
-    if (!bulk) return;
+    if (!bulk || executing) return;
     setError(null);
+    setExecuting(true);
     try {
       const job = await post<{ id: string }>(`/api/p/${name}/groups/bulk/execute`, {
         ...filterBody,
@@ -119,13 +126,20 @@ export default function Groups() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not execute.");
+    } finally {
+      setExecuting(false);
     }
   }
 
   async function more() {
-    const next = await get<Group[]>(query(offset));
-    setGroups((prev) => [...prev, ...next]);
-    setOffset(offset + next.length);
+    try {
+      const next = await get<Group[]>(query(offset));
+      setGroups((prev) => [...prev, ...next]);
+      setOffset(offset + next.length);
+      setHasMore(next.length === PAGE);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load more groups.");
+    }
   }
 
   const num = (key: "open" | "auto_resolved" | "resolved" | "dismissed" | "dirty") => counts[key] ?? 0;
@@ -217,7 +231,7 @@ export default function Groups() {
               <button
                 type="button"
                 className="danger"
-                disabled={bulk.planned === 0 || (bulk.typed_confirmation_required && Number(typed) !== bulk.files_to_delete)}
+                disabled={executing || bulk.planned === 0 || (bulk.typed_confirmation_required && Number(typed) !== bulk.files_to_delete)}
                 onClick={() => void executeBulk()}
               >
                 Execute
@@ -265,7 +279,7 @@ export default function Groups() {
           </table>
         </div>
       )}
-      {groups.length >= PAGE && groups.length === offset && (
+      {hasMore && (
         <button type="button" onClick={() => void more()}>
           Load more
         </button>

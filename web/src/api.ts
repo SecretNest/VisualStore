@@ -23,6 +23,9 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 async function detailOf(response: Response): Promise<string | undefined> {
   try {
     const body = (await response.json()) as { detail?: unknown };
+    if (Array.isArray(body.detail))
+      // FastAPI validation errors: one entry per field
+      return body.detail.map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : String(d))).join("; ");
     return body.detail === undefined ? undefined : String(body.detail);
   } catch {
     return undefined; // body was not JSON

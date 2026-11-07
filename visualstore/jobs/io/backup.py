@@ -172,6 +172,8 @@ def run_backup(ctx: IoContext) -> dict:
     sources = {"metadata": ctx.paths.metadata_db, "vectors": ctx.paths.vectors_db}
     dest_dir = ctx.backup_dir / ctx.profile
     dest_dir.mkdir(parents=True, exist_ok=True)
+    for stale in dest_dir.glob("*.tmp"):  # a copy interrupted by SIGKILL (audit 2026-11-07)
+        stale.unlink(missing_ok=True)
     now = datetime.now(UTC)
     total = len(targets) + 1
     written: list[str] = []

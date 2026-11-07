@@ -3,7 +3,7 @@
 ## 5.1 Entities
 
 **Profile**
-The boundary of data isolation. Each profile owns `visualstore.db`, `vectors.db`, `index.usearch`, and `thumbs/` under `/data/profiles/<name>/`. Every entity below (Folder, File, Pair, Group, Job, Action, Setting, ...) belongs to a profile and lives in that profile's database; tables need no `profile_id` column.
+The boundary of data isolation. Each profile owns `visualstore.db`, `vectors.db`, `index.usearch`, `pca.npz`, `thumbs/`, `previews/` and `reports/` under `/data/profiles/<name>/`. Every entity below (Folder, File, Pair, Group, Job, Action, Setting, ...) belongs to a profile and lives in that profile's database; tables need no `profile_id` column.
 The profile list (`name`, `display_name`, `created_at`, sort order) lives in the global `/data/global.db`, the only cross-profile data. `name` doubles as directory name and URL segment and is limited to lowercase letters, digits, and hyphens.
 Deleting a profile deletes its whole directory; the UI requires typing the profile name to confirm.
 

@@ -10,7 +10,9 @@ and verifies each copy with `PRAGMA integrity_check`:
 - `/backups/<profile>/vectors-<timestamp>.db` — vectors and index keys. Weekly, 4 kept.
 - `/backups/global.db` — the profile list, copied with every backup.
 
-The search index (`index.usearch`), `thumbs/` and `previews/` are derived and not backed up.
+The search index (`index.usearch`, `pca.npz`), `thumbs/` and `previews/` are derived and not
+backed up. Evaluation reports under `reports/` are not backed up either; copy the ones you want
+to keep.
 Change the policy per profile under **Jobs → Settings** (`backup.*`), or run **Overview → Back
 up now**. Point your external backup tool at `/backups`.
 
@@ -19,7 +21,10 @@ up now**. Point your external backup tool at `/backups`.
 1. `docker compose down`.
 2. Copy the chosen `visualstore-<timestamp>.db` over `/data/profiles/<profile>/visualstore.db`
    and, if the vectors are gone or damaged, `vectors-<timestamp>.db` over `vectors.db`. Delete
-   stale `visualstore.db-wal` / `visualstore.db-shm` files next to them.
+   stale `visualstore.db-wal` / `visualstore.db-shm` files next to them. When you restored
+   `vectors.db`, also delete `index.usearch` and `pca.npz`: the index is rebuilt from the
+   restored vectors on start (the start-up check would notice a key mismatch anyway, but a
+   missing index is the unambiguous signal).
 3. `docker compose up -d`.
 
 On start the server heals the rest by itself:

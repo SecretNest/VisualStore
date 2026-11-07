@@ -31,6 +31,7 @@ export default function Overview() {
   const { name = "" } = useParams();
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -44,29 +45,35 @@ export default function Overview() {
   useEffect(() => {
     setLastProfile(name);
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 2000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 2000);
     return () => window.clearInterval(timer);
   }, [name, refresh]);
 
   async function backupNow() {
+    if (backingUp) return;
+    setBackingUp(true);
     try {
       await post(`/api/p/${name}/backups`, {});
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not queue the backup.");
+    } finally {
+      setBackingUp(false);
     }
   }
 
-  if (error)
-    return (
-      <p className="error" role="alert">
-        {error}
-      </p>
-    );
-  if (!data) return <p className="muted">Loading…</p>;
+  const banner = error && (
+    <p className="error" role="alert">
+      {error}
+    </p>
+  );
+  if (!data) return banner || <p className="muted">Loading…</p>;
 
   return (
     <section>
+      {banner}
       <h1>{data.profile.display_name}</h1>
       <div className="cards">
         <div className="card">
@@ -79,7 +86,7 @@ export default function Overview() {
           <h2>Backups</h2>
           <p>Metadata: {formatWhen(data.last_backup.metadata)}</p>
           <p>Vectors: {formatWhen(data.last_backup.vectors)}</p>
-          <button type="button" onClick={backupNow}>
+          <button type="button" onClick={() => void backupNow()} disabled={backingUp}>
             Back up now
           </button>
         </div>

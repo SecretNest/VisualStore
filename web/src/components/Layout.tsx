@@ -22,6 +22,7 @@ export default function Layout() {
   const reloadProfiles = useCallback(async () => {
     try {
       setProfiles(await get<Profile[]>("/api/profiles"));
+      setLoadError(null);
     } catch (err) {
       if (err instanceof Unauthorized) navigate("/login", { replace: true });
       else setLoadError(err instanceof Error ? err.message : "Could not reach the server.");

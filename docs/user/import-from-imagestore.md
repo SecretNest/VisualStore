@@ -34,6 +34,7 @@ on the same page. The report shows:
 - how the current threshold bands classify each set, and suggested `similarity.near_duplicate`
   (95 % recall) and `similarity.variant` (99 % recall) values.
 
-Set the thresholds under **Jobs → Settings** (`similarity.*`, `grouping.group_distance`); groups
-are recomputed as pairs change. Running the evaluation for the comparison model (DINOv2) means
+Set the thresholds under **Jobs → Settings** (`similarity.*`, `grouping.group_distance`). The
+bands follow the `similarity.*` values at once; changing `grouping.group_distance` queues a regroup
+of every paired file, so the groups are re-formed at the new distance. Running the evaluation for the comparison model (DINOv2) means
 switching the model (**Jobs → Model**), waiting for the vectors, and running it again.

@@ -9,19 +9,20 @@ visualstore/                   Python package
   domain/                      pure logic: grouping (union-find), default resolution rules, compare-scope filter, threshold bands
   jobs/
     scheduler.py               polls every profile queue, dispatches io / compute jobs
-    io/                        scan, actions, regroup, backup, purge, import_v1, maintenance
-    compute/                   child-process entry point; fingerprint, match, eval
+    io/                        scan, actions, regroup, backup, purge, import_v1, eval, rebuild, model_switch, bulk_resolve, folder_delete, clean_empty_dirs, maintenance
+    compute/                   child-process entry point; fingerprint, match, build_index, ping
   media/                       decoding, frame sampling, video/animated frames, thumbnails (called by compute, testable alone)
   index/                       usearch wrapper and the optional per-profile PCA projection
   preflight.py                 start-up check that the data and backup directories are writable
   models/                      ONNX loading and preprocessing
   static/                      frontend build output
 web/                           React frontend source
+  e2e/                         Playwright smoke test and its server script
+scripts/                       model export (needs torch, not shipped) and index memory measurement
 tests/
   unit/                        domain, db, media
   integration/                 full pipeline on a temp directory with small images
-  e2e/                         Playwright
-docker/                        Dockerfile, compose example
+docker/                        Dockerfile, entrypoint (PUID/PGID), compose example, media-support check
 docs/                          design, decisions, plans, user documentation (see docs/README.md)
 ```
 

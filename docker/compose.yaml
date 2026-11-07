@@ -6,6 +6,8 @@ services:
     image: ghcr.io/secretnest/visualstore:latest
     container_name: visualstore
     restart: unless-stopped
+    init: true               # reaps children a killed compute process leaves behind
+    stop_grace_period: 2m    # a backup, VACUUM or bulk job in flight finishes before SIGKILL
     ports:
       - "8080:8080"
     environment:

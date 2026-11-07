@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:  # run on a feature branch before merging
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -50,7 +57,8 @@ jobs:
         run: cd web && npm run build
 
   image:
-    # Proves the Dockerfile builds (amd64 only) on every change; publishing is manual.
+    # Proves the Dockerfile builds (amd64 only) on every change and that the entrypoint drops
+    # privileges as documented; publishing is manual.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,9 +67,21 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
-          target: runtime
+          target: test  # FROM runtime: the published stage is built as well
           push: false
-          tags: visualstore:ci
+          load: true
+          tags: visualstore:test
+      - name: Entrypoint drops to PUID/PGID with a writable HOME
+        run: |
+          out="$(docker run --rm -e PUID=1234 -e PGID=1234 visualstore:test sh -c 'id -u; id -g; echo $HOME' | tr '\n' ' ')"
+          echo "$out"
+          test "$out" = "1234 1234 /tmp "
+      - name: Version reported by the image matches pyproject
+        run: |
+          declared="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          reported="$(docker run --rm visualstore:test python -c 'import visualstore; print(visualstore.__version__)')"
+          echo "pyproject $declared / image $reported"
+          test "$declared" = "$reported"
 
   e2e:
     runs-on: ubuntu-latest

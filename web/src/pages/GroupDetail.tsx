@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, get, post, put } from "../api";
 import Compare from "../components/Compare";
@@ -17,9 +17,13 @@ export default function GroupDetail() {
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<Record<string, number>>({});
 
+  // Each load is numbered; a response for an earlier group (slow API, quick Enter/Esc) is dropped.
+  const requestRef = useRef(0);
   const load = useCallback(async () => {
+    const request = ++requestRef.current;
     try {
       const d = await get<Detail>(`/api/p/${name}/groups/${groupId}`);
+      if (request !== requestRef.current) return;
       setDetail(d);
       setKeys({
         members: d.group.members.map((m) => ({
@@ -33,6 +37,7 @@ export default function GroupDetail() {
       });
       setError(null);
     } catch (err) {
+      if (request !== requestRef.current) return;
       if (err instanceof ApiError && err.status === 404)
         navigate(`/p/${name}/groups`, { replace: true });
       else
@@ -43,19 +48,37 @@ export default function GroupDetail() {
   }, [name, groupId, navigate]);
 
   useEffect(() => {
+    setDetail(null); // the previous group's members must not stay actionable while this one loads
+    setKeys(null);
     void load();
   }, [load]);
 
   const goNext = useCallback(async () => {
     // Queue order, wrapping around, never a group whose decisions are being executed.
+    setBusy(true);
     try {
       const next = await get<{ id: string | null }>(`/api/p/${name}/groups/${groupId}/next`);
       navigate(next.id ? `/p/${name}/groups/${next.id}` : `/p/${name}/groups`);
     } catch {
       const open = await get<Group[]>(`/api/p/${name}/groups?status=open&limit=1`).catch(() => []);
       navigate(open[0] && open[0].id !== groupId ? `/p/${name}/groups/${open[0].id}` : `/p/${name}/groups`);
+    } finally {
+      setBusy(false);
     }
   }, [name, groupId, navigate]);
+
+  const dismiss = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await post(`/api/p/${name}/groups/${groupId}/dismiss`);
+      await goNext();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not dismiss the group.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, name, groupId, goNext]);
 
   const confirm = useCallback(async () => {
     if (!keys || busy || detail?.group.status !== "open") return;
@@ -106,13 +129,18 @@ export default function GroupDetail() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "BUTTON" && (e.key === " " || e.key === "Enter")) (e.target as HTMLElement).blur();
+      // Browser chords (Ctrl+D bookmark, Cmd+A select all) are not review keys, and a focused
+      // button or link keeps its own Enter/Space.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (
         !keys ||
         !detail ||
+        busy ||
         tag === "INPUT" ||
         tag === "SELECT" ||
-        tag === "TEXTAREA"
+        tag === "TEXTAREA" ||
+        tag === "BUTTON" ||
+        tag === "A"
       )
         return;
       const id = detail.group.members[keys.selected].file_id;
@@ -133,7 +161,7 @@ export default function GroupDetail() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keys, detail, confirm, goNext, markUnrelated]);
+  }, [keys, detail, busy, confirm, goNext, markUnrelated]);
 
   if (error && (!detail || !keys))
     return (
@@ -162,6 +190,15 @@ export default function GroupDetail() {
         i === index ? { ...m, decision } : m,
       ),
     });
+
+  const anchorPairExists =
+    keys.anchor !== null &&
+    detail.pairs.some((p) => {
+      const ends = new Set([p.file_a, p.file_b]);
+      return ends.has(group.members[keys.anchor!].file_id) && ends.has(group.members[keys.selected].file_id);
+    });
+  const sha1Count = new Map<string, number>();
+  for (const m of group.members) if (m.sha1) sha1Count.set(m.sha1, (sha1Count.get(m.sha1) ?? 0) + 1);
 
   return (
     <section>
@@ -192,6 +229,7 @@ export default function GroupDetail() {
                 <div>
                   <Thumb name={name} fileId={m.file_id} size={64} />
                   <span className="tag">{m.role}</span>{" "}
+                  {m.sha1 && (sha1Count.get(m.sha1) ?? 0) > 1 && <span className="tag">identical</span>}{" "}
                   <strong>{m.folder_name}</strong>{" "}
                   <code>{m.relative_path}</code>
                   <span className="muted"> · {formatBytes(m.size)}</span>
@@ -327,30 +365,18 @@ export default function GroupDetail() {
         >
           Confirm (Enter)
         </button>
-        <button type="button" onClick={() => void goNext()}>
+        <button type="button" onClick={() => void goNext()} disabled={busy}>
           Skip (Esc)
         </button>
         <button
           type="button"
           onClick={() => void markUnrelated()}
-          disabled={keys.anchor === null || keys.anchor === keys.selected}
+          disabled={busy || keys.anchor === null || keys.anchor === keys.selected || !anchorPairExists}
+          title={anchorPairExists ? undefined : "These two files are only linked through other members."}
         >
           Mark unrelated (u)
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            void (async () => {
-              try {
-                await post(`/api/p/${name}/groups/${groupId}/dismiss`);
-                await goNext();
-              } catch (err) {
-                setError(err instanceof ApiError ? err.message : "Could not dismiss the group.");
-              }
-            })()
-          }
-          disabled={group.status !== "open"}
-        >
+        <button type="button" onClick={() => void dismiss()} disabled={busy || group.status !== "open"}>
           Dismiss group
         </button>
       </div>

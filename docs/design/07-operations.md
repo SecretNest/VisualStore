@@ -5,8 +5,8 @@
 - Use SQLite's online backup API (`sqlite3.Connection.backup`) to back up `visualstore.db` and `vectors.db` separately into `/backups/<profile>/`, file names carrying a timestamp. `global.db` is tiny and is copied to `/backups/global.db` alongside any profile's backup. The backup directory is its own volume so an external backup system can grab it in one place.
 - Policy is a per-profile setting. Default: metadata database daily, keep 14; vector database weekly, keep 4.
 - Verify after each backup by running `PRAGMA integrity_check` on the copy.
-- `index.usearch` and `thumbs/` are not backed up; they can be rebuilt.
-- The restore procedure goes into the README: stop the container, replace the files under the profile directory, start; the server notices the index and vectors disagree and rebuilds automatically. Restoring one profile does not affect others.
+- `index.usearch`, `pca.npz`, `thumbs/` and `previews/` are derived and not backed up; they are rebuilt. `reports/` (evaluation reports) is not derived and not backed up either: an operator who wants to keep a report copies it.
+- The restore procedure is [the restore guide](../user/restore.md): stop the container, replace the files under the profile directory, start; the server notices the index and vectors disagree (options, dimensions, or an index holding fewer keys than the vector database without a match job pending) and rebuilds automatically. Restoring one profile does not affect others.
 - Whole-system migration ([02 §3.1](02-architecture.md#31-initialisation-and-migration)) is a stop-and-copy of the entire `/data`, not a backup flow; index and thumbnails travel with it so nothing is rebuilt on the NAS.
 
 ## 9.2 Authentication

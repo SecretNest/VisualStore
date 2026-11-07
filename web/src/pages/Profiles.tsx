@@ -18,14 +18,16 @@ export default function Profiles() {
   const [confirm, setConfirm] = useState("");
 
   useEffect(() => {
-    void get<SystemStatus>("/api/system/status").then(setStatus);
+    get<SystemStatus>("/api/system/status")
+      .then(setStatus)
+      .catch(() => setStatus(null)); // the footer just stays empty
   }, [profiles]);
 
   useEffect(() => {
     for (const p of profiles) {
-      void get<{ bytes: number }>(`/api/profiles/${p.name}/usage`).then((u) =>
-        setUsage((prev) => ({ ...prev, [p.name]: u.bytes })),
-      );
+      get<{ bytes: number }>(`/api/profiles/${p.name}/usage`)
+        .then((u) => setUsage((prev) => ({ ...prev, [p.name]: u.bytes })))
+        .catch(() => undefined); // usage is decoration
     }
   }, [profiles]);
 
