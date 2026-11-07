@@ -275,3 +275,16 @@ def test_names_that_are_not_valid_utf8_are_skipped_not_fatal(world):
     result = run_scan(ctx_for(reg, folder))
     assert result["skipped_names"] == 1
     assert all("odd" not in p for p in rel_paths(conn, folder))
+
+
+def test_deleting_a_vanished_file_removes_its_thumbnail(world):
+    reg, conn, folder, lib = world
+    run_scan(ctx_for(reg, folder))
+    row = files.find_file(conn, folder, "", "two.PNG")
+    text = id_to_str(bytes(row["id"]))
+    thumb = reg.paths("a").thumbs / text[:2] / f"{text}.webp"
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    thumb.write_bytes(b"t")
+    (lib / "two.PNG").unlink()
+    run_scan(ctx_for(reg, folder))
+    assert files.get_file(conn, bytes(row["id"])) is None and not thumb.exists()

@@ -81,6 +81,11 @@ def update_location(
         )
 
 
+def set_dimensions(conn: sqlite3.Connection, file_id: bytes, width: int, height: int) -> None:
+    with conn:
+        conn.execute("UPDATE file SET width = ?, height = ? WHERE id = ?", (width, height, file_id))
+
+
 def update_stat(conn: sqlite3.Connection, file_id: bytes, size: int, mtime: int) -> None:
     with conn:
         conn.execute("UPDATE file SET size = ?, mtime = ? WHERE id = ?", (size, mtime, file_id))

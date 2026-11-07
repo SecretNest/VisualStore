@@ -222,6 +222,8 @@ def sink_fingerprint(ctx: SinkContext) -> None:
             continue  # deleted/trashed since the job was queued, or content changed meanwhile
         sha1 = bytes.fromhex(entry["sha1"]) if entry.get("sha1") else None
         files_db.set_fingerprint_result(conn, file_id, sha1=sha1, state=entry["state"])
+        if entry.get("width") and entry.get("height"):
+            files_db.set_dimensions(conn, file_id, int(entry["width"]), int(entry["height"]))
         if entry.get("frames") and model:
             frames = [
                 (int(f["index"]), int(f.get("time_ms", 0)), base64.b64decode(f["vector"]))

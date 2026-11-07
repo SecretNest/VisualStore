@@ -10,16 +10,10 @@ from visualstore.db import fingerprints as fp
 from visualstore.db import folders as folders_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db.util import chunked
-from visualstore.ids import id_from_str, id_to_str
+from visualstore.ids import id_from_str
+from visualstore.jobs.derived import remove_derived
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_INBOX
-
-
-def _remove_derived(paths, text: str) -> None:
-    (paths.thumbs / text[:2] / f"{text}.webp").unlink(missing_ok=True)
-    (paths.previews / text[:2] / f"{text}.webp").unlink(missing_ok=True)
-    for stale in (paths.previews / "frames" / text[:2]).glob(f"{text}-*.webp"):
-        stale.unlink(missing_ok=True)
 
 
 def run_folder_delete(ctx: IoContext) -> dict:
@@ -32,7 +26,7 @@ def run_folder_delete(ctx: IoContext) -> dict:
         ids = [bytes(r["id"]) for r in files_db.list_files_in_folder(conn, folder_id)]
         for chunk in chunked(ids):
             for fid in chunk:
-                _remove_derived(ctx.paths, id_to_str(fid))
+                remove_derived(ctx.paths, fid)
             fp.delete_for_files(vconn, chunk)  # frames gone, keys retired for the next match
             files_db.delete_files(conn, chunk)  # cascades pairs and group membership
             removed += len(chunk)

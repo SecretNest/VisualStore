@@ -1,6 +1,7 @@
 """Overview page data (design §8.1 item 1, milestone 1 subset)."""
 
 import asyncio
+import os
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, Request
@@ -33,6 +34,7 @@ async def overview(request: Request, name: str = Depends(get_profile)) -> dict:
                 "name": f["name"],
                 "role": f["role"],
                 "enabled": bool(f["enabled"]),
+                "available": os.path.isdir(f["path"]),  # design §14: a wrong mount is visible
                 "counts": counts.get(id_to_str(bytes(f["id"])), {}),
             }
             for f in folders_db.list_folders(conn)

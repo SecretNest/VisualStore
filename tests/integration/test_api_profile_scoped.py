@@ -113,7 +113,14 @@ def test_overview_lists_folders_and_group_counts(client, tmp_path):
     folder = client.post("/api/p/a/folders", json=body).json()
     overview = client.get("/api/p/a/overview").json()
     assert overview["folders"] == [
-        {"id": folder["id"], "name": "Lib", "role": "inbox", "enabled": True, "counts": {}}
+        {
+            "id": folder["id"],
+            "name": "Lib",
+            "role": "inbox",
+            "enabled": True,
+            "available": True,
+            "counts": {},
+        }
     ]
     assert overview["groups"] == {"open": 0, "auto_resolved": 0, "resolved": 0, "dismissed": 0}
     assert overview["dirty"] == 0
@@ -179,3 +186,17 @@ def test_model_id_is_not_settable_directly_and_settings_have_maxima(client):
         client.put("/api/p/a/settings/frames.max_per_file", json={"value": 1000}).status_code == 400
     )
     assert client.put("/api/p/a/settings/similarity.top_k", json={"value": 256}).status_code == 200
+
+
+def test_overview_reports_folders_whose_path_is_not_available(client, tmp_path):
+    """Design §14: a wrong mount after a migration must be visible, not silent."""
+    setup_profile(client)
+    present, gone = tmp_path / "present", tmp_path / "gone"
+    present.mkdir()
+    gone.mkdir()
+    for label, path in (("Here", present), ("Gone", gone)):
+        body = {"name": label, "path": str(path), "role": "inbox", "compare_scope": "all"}
+        assert client.post("/api/p/a/folders", json=body).status_code == 201
+    gone.rmdir()  # the share is not mounted any more
+    folders = {f["name"]: f for f in client.get("/api/p/a/overview").json()["folders"]}
+    assert folders["Here"]["available"] is True and folders["Gone"]["available"] is False

@@ -396,3 +396,22 @@ def test_same_folder_rename_marks_the_file_dirty_and_ignored_directories_are_ref
         )
     )
     assert result["skipped"] == [{"id": id_to_str(a), "reason": "ignored directory"}]
+
+
+def test_trashing_removes_the_derived_images_too(world):
+    """Design §5.3: a file's thumbnail and previews go with it."""
+    reg, conn, folder, lib, add = world
+    a = add("a.jpg", b"aaa")
+    text = id_to_str(a)
+    paths = reg.paths("a")
+    for p in (
+        paths.thumbs / text[:2] / f"{text}.webp",
+        paths.previews / text[:2] / f"{text}.webp",
+        paths.previews / "frames" / text[:2] / f"{text}-0.webp",
+    ):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+    run_apply_action(ctx_for(reg, {"trash": [text]}))
+    assert not (paths.thumbs / text[:2] / f"{text}.webp").exists()
+    assert not (paths.previews / text[:2] / f"{text}.webp").exists()
+    assert not (paths.previews / "frames" / text[:2] / f"{text}-0.webp").exists()

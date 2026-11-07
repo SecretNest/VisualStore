@@ -98,8 +98,10 @@ def _embed_frames(frames: list, model: dict, thumb_index: int) -> tuple[list[dic
     return out, base64.b64encode(thumb).decode("ascii")
 
 
-def _frames_for(path: str, media_type: str, max_pixels: int, sampling: dict) -> tuple[list, int]:
-    """The sampled frames of a file and which one becomes the thumbnail."""
+def _frames_for(
+    path: str, media_type: str, max_pixels: int, sampling: dict
+) -> tuple[list, int, tuple[int, int]]:
+    """The sampled frames of a file, which one becomes the thumbnail, and the source size."""
     from visualstore.media import animated, video
     from visualstore.media.decode import load_image
     from visualstore.media.frames import Frame, sample_times
@@ -111,13 +113,15 @@ def _frames_for(path: str, media_type: str, max_pixels: int, sampling: dict) -> 
         times = sample_times(info.duration_s, max_frames, info.first_keyframe_s)
         dims = (info.width, info.height)
         frames = video.frames_at_times(path, times, timeout, max_pixels, dims)
-        return frames, len(frames) // 2
+        return frames, len(frames) // 2, dims
     if media_type == "animated":
-        return animated.frames(path, max_frames, timeout, max_pixels), 0
+        frames = animated.frames(path, max_frames, timeout, max_pixels)
+        return frames, 0, animated.dimensions(path)
     decoded = load_image(path, max_pixels)
     if decoded.pages > 1:  # an animated webp with an image extension (design §5.1)
-        return animated.frames(path, max_frames, timeout, max_pixels), 0
-    return [Frame(0, 0, decoded.image)], 0
+        frames = animated.frames(path, max_frames, timeout, max_pixels)
+        return frames, 0, (decoded.width, decoded.height)
+    return [Frame(0, 0, decoded.image)], 0, (decoded.width, decoded.height)
 
 
 def fingerprint(params: dict, report: Report) -> dict:
@@ -144,12 +148,18 @@ def fingerprint(params: dict, report: Report) -> dict:
             }
             if model and entry.get("media_type") in ("image", "animated", "video"):
                 try:
-                    frames, thumb_index = _frames_for(
+                    frames, thumb_index, (width, height) = _frames_for(
                         path, entry["media_type"], max_pixels, sampling
                     )
                     frames_out, thumb = _embed_frames(frames, model, thumb_index)
                     record.update(
-                        {"frames": frames_out, "thumbnail": thumb, "model_id": model["id"]}
+                        {
+                            "frames": frames_out,
+                            "thumbnail": thumb,
+                            "model_id": model["id"],
+                            "width": width,
+                            "height": height,
+                        }
                     )
                 except NotMedia as exc:
                     record.update({"state": "not_media", "reason": str(exc)[:200]})

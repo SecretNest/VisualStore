@@ -223,3 +223,22 @@ def test_sink_replaces_frames_and_retires_keys_when_fewer_frames_come_back(world
     assert fingerprints.pending_removals(vconn, spec.id) == keys[2:]
     jobs = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]
     assert json.loads(jobs[0]["params"])["remove"] == keys[2:]  # newest first
+
+
+def test_handler_reports_the_source_dimensions(world):
+    reg, conn, lib, model_dir, spec, add = world
+    still = add("still.png", png_bytes(40, 30))
+    make_clip(lib / "clip.mp4", 1)
+    clip = add("clip.mp4", (lib / "clip.mp4").read_bytes(), media="mp4")
+    result = fingerprint(
+        {
+            "files": [entry(still, lib, "still.png"), entry(clip, lib, "clip.mp4", "video")],
+            "model": job_params(spec, model_dir),
+            "max_pixels": 10_000_000,
+            "frames": {"max_per_file": 2, "ffmpeg_timeout_s": 60},
+        },
+        lambda p: None,
+    )
+    by_id = {e["id"]: e for e in result["files"]}
+    assert (by_id[id_to_str(still)]["width"], by_id[id_to_str(still)]["height"]) == (40, 30)
+    assert (by_id[id_to_str(clip)]["width"], by_id[id_to_str(clip)]["height"]) == (160, 120)

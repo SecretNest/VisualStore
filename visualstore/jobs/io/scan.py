@@ -24,6 +24,7 @@ from visualstore.domain.scan import (
 )
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs.compute.handlers import sha1_of
+from visualstore.jobs.derived import remove_derived
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_ARCHIVE, PRIORITY_INBOX
 from visualstore.media.frames import sampling_params
@@ -183,6 +184,8 @@ def run_scan(ctx: IoContext) -> dict:
             # Keep every row; the next scan that reads everything decides (audit B5).
             to_delete = []
         files_db.delete_files(conn, to_delete)
+        for gone in to_delete:
+            remove_derived(ctx.paths, gone)
         gone_vectors = to_delete + [fid for fid, _ in plan.changed]
         if gone_vectors:
             with closing(ctx.open_vectors()) as vconn:

@@ -19,6 +19,7 @@ from visualstore.db import jobs as jobs_db
 from visualstore.domain.paths import TRASH_DIR, is_under, normalise_relative
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs import results
+from visualstore.jobs.derived import remove_derived
 from visualstore.jobs.io.scan import _abs
 from visualstore.jobs.scheduler import IoContext
 from visualstore.jobs.types import PRIORITY_INBOX, PRIORITY_USER
@@ -145,6 +146,7 @@ def _trash_one(
     if after.get("permanent"):
         actions_db.supersede(conn, action_id)
     files_db.delete_files(conn, [file_id])
+    remove_derived(ctx.paths, file_id)
     remove_empty_parents(src.parent, Path(folder["path"]))
     return None
 

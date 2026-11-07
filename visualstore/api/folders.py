@@ -126,6 +126,23 @@ async def delete_folder(folder_id: str, request: Request, name: str = Depends(ge
     return jobs_db.to_dict(jobs_db.get(conn, job_id))
 
 
+@router.post("/folders/{folder_id}/clean-empty-directories", status_code=201)
+async def clean_empty_directories(
+    folder_id: str, request: Request, name: str = Depends(get_profile)
+) -> dict:
+    conn = get_state(request).registry.conn(name)
+    fid = parse_id(folder_id)
+    _folder_or_404(conn, fid)
+    job_id = jobs_db.enqueue(
+        conn,
+        type="clean_empty_dirs",
+        kind="io",
+        priority=PRIORITY_USER,
+        params={"folder_id": folder_id},
+    )
+    return jobs_db.to_dict(jobs_db.get(conn, job_id))
+
+
 @router.post("/folders/{folder_id}/ignored", status_code=201)
 async def add_ignored(
     folder_id: str, body: AddIgnored, request: Request, name: str = Depends(get_profile)

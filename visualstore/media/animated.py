@@ -35,6 +35,12 @@ def page_count(path: str, max_pixels: int) -> int:
     return int(img.get("n-pages")) if img.get_typeof("n-pages") else 1
 
 
+def dimensions(path: str) -> tuple[int, int]:
+    """Width and height of one page (the source size, before any shrinking)."""
+    img = _open(path, page=0, n=1)
+    return int(img.width), int(img.height)
+
+
 def page_times_ms(path: str) -> list[int]:
     img = _open(path)
     if not img.get_typeof("delay"):

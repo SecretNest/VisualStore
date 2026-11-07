@@ -18,6 +18,7 @@ KIND_OF: dict[str, str] = {
     "bulk_resolve": "io",
     "maintenance": "io",
     "folder_delete": "io",
+    "clean_empty_dirs": "io",
     "scan": "io",
     "regroup": "io",
     "apply_action": "io",

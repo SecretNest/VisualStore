@@ -111,3 +111,12 @@ def test_stale_result_for_a_changed_file_is_ignored(db):
 
 def test_registered():
     assert RESULT_SINKS["fingerprint"] is sink_fingerprint
+
+
+def test_dimensions_from_the_result_are_stored_on_the_file(db):
+    """Design §8.3 lists the resolution per member; the handler reports it, the sink keeps it."""
+    reg, conn, ids = db
+    a = ids[0]
+    sink(reg, {"files": [{**entry(a), "width": 640, "height": 480}]})
+    row = files.get_file(conn, a)
+    assert (row["width"], row["height"]) == (640, 480)

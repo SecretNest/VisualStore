@@ -49,8 +49,9 @@ async def logout(request: Request, response: Response) -> dict:
     """Single password, single operator: logging out invalidates every session issued so far,
     not just this browser's cookie (a copied cookie would otherwise stay valid for 30 days)."""
     state = get_state(request)
-    state.sessions_valid_from = time.time()
-    state.registry.set_stamp("sessions_valid_from", state.sessions_valid_from)
+    if session_ok(request):  # an anonymous caller must not be able to log everyone out
+        state.sessions_valid_from = time.time()
+        state.registry.set_stamp("sessions_valid_from", state.sessions_valid_from)
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
 
