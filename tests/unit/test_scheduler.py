@@ -163,6 +163,8 @@ async def test_message_for_deleted_profile_is_ignored(registry, scheduler, pool)
     jobs_db.enqueue(conn, type="ping", kind="compute")
     await scheduler.tick()
     req = pool.submitted[0]
+    with conn:  # the job is cancelled from outside, then the profile goes away
+        conn.execute("UPDATE job SET state = 'cancelled'")
     registry.delete("b", confirm_name="b")
     pool.messages.append(ComputeMessage(req.job_id, "b", "result", {}))
     await scheduler.tick()  # must not raise

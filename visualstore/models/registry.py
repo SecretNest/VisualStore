@@ -91,14 +91,22 @@ def job_params(spec: ModelSpec, model_dir: Path) -> dict:
     }
 
 
+_VERIFIED: dict[Path, tuple[int, int]] = {}  # path -> (size, mtime_ns) of a file that hashed ok
+
+
 def resolve_model_path(spec: ModelSpec, model_dir: Path) -> Path:
-    """The verified local file for a model, downloading it when allowed and absent."""
+    """The verified local file for a model, downloading it when allowed and absent. A file that
+    verified once is not re-hashed while its size and mtime are unchanged."""
     target = model_dir / spec.file_name()
     if target.is_file():
-        if spec.sha256 and sha256_of(target) != spec.sha256:
-            raise ModelError(
-                f"{target} does not match the registered sha256 for {spec.id}; replace or remove it"
-            )
+        st = target.stat()
+        if spec.sha256 and _VERIFIED.get(target) != (st.st_size, st.st_mtime_ns):
+            if sha256_of(target) != spec.sha256:
+                raise ModelError(
+                    f"{target} does not match the registered sha256 for {spec.id};"
+                    " replace or remove it"
+                )
+            _VERIFIED[target] = (st.st_size, st.st_mtime_ns)
         return target
     if not spec.sha256:
         raise ModelError(

@@ -35,14 +35,19 @@ def _cancel_foreign_jobs(conn, model_id: str) -> int:
 
 
 def queue_missing_vectors(
-    conn, vconn, settings: dict, model_dir, folder_id: bytes | None = None
+    conn,
+    vconn,
+    settings: dict,
+    model_dir,
+    folder_id: bytes | None = None,
+    have: set[bytes] | None = None,
 ) -> tuple[int, int]:
     """Fingerprint jobs for every fingerprinted media file lacking vectors for the active model,
     skipping files already named by a queued or running fingerprint job. Returns (files, jobs).
     Shared by the model switch and the start-up consistency check."""
     spec = get_spec(settings["model.id"], model_dir)
     model = job_params(spec, model_dir)
-    have = fp.files_with_vectors(vconn, spec.id)
+    have = fp.files_with_vectors(vconn, spec.id) if have is None else have
     in_flight = jobs_db.active_file_ids(conn, "fingerprint")
     queued_files = jobs_made = 0
     for folder in folders_db.list_folders(conn):

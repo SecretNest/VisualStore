@@ -109,7 +109,8 @@ def _frames_for(path: str, media_type: str, max_pixels: int, sampling: dict) -> 
     if media_type == "video":
         info = video.probe(path, timeout)
         times = sample_times(info.duration_s, max_frames, info.first_keyframe_s)
-        frames = video.frames_at_times(path, times, timeout, max_pixels)
+        dims = (info.width, info.height)
+        frames = video.frames_at_times(path, times, timeout, max_pixels, dims)
         return frames, len(frames) // 2
     if media_type == "animated":
         return animated.frames(path, max_frames, timeout, max_pixels), 0
@@ -237,17 +238,21 @@ def build_index(params: dict, report: Report) -> dict:
     """Build a fresh index from an exported (keys, vectors) file and replace the profile's."""
     from visualstore.index.usearch_index import VectorIndex
 
-    data = np.load(params["export_path"])
-    keys = data["keys"].astype(np.uint64)
-    options = _index_options(params, int(params["dim"]))
-    vectors = _projected(data["vectors"].astype(np.float32), options)
-    index = VectorIndex.empty(options["index_dim"], options["quantization"])
-    step = 4096
-    for start in range(0, len(keys), step):
-        index.add(keys[start : start + step].tolist(), vectors[start : start + step])
-        report({"done": min(start + step, len(keys)), "total": len(keys), "message": "building"})
-    index.save(Path(params["index_path"]))
-    os.unlink(params["export_path"])
+    try:
+        data = np.load(params["export_path"])
+        keys = data["keys"].astype(np.uint64)
+        options = _index_options(params, int(params["dim"]))
+        vectors = _projected(data["vectors"].astype(np.float32), options)
+        index = VectorIndex.empty(options["index_dim"], options["quantization"])
+        step = 4096
+        for start in range(0, len(keys), step):
+            index.add(keys[start : start + step].tolist(), vectors[start : start + step])
+            report(
+                {"done": min(start + step, len(keys)), "total": len(keys), "message": "building"}
+            )
+        index.save(Path(params["index_path"]))
+    finally:
+        Path(params["export_path"]).unlink(missing_ok=True)  # never left behind (audit minor)
     return {"count": index.count, "model_id": params["model_id"], "dim": int(params["dim"])}
 
 

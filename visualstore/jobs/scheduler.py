@@ -117,6 +117,8 @@ class Scheduler:
             except asyncio.CancelledError:
                 pass
             self._loop_task = None
+        if self._io_task is not None and not self._io_task.done():
+            log.info("waiting for the running io job to finish before shutting down")
         await self.wait_io()
 
     async def _run(self) -> None:

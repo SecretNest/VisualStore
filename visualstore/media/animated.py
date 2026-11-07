@@ -54,7 +54,11 @@ def load_pages(path: str, indices: list[int], max_pixels: int) -> list[Frame]:
         img = _open(path, page=index, n=1)
         if img.width * img.height > max_pixels:
             raise Unreadable(f"{img.width}x{img.height} exceeds the limit of {max_pixels} pixels")
-        time_ms = times[index] if index < len(times) else index * 100
+        if index < len(times):
+            time_ms = times[index]
+        else:  # the delay list is shorter than the page count: extend with the last known step
+            step = (times[-1] - times[-2]) if len(times) > 1 else 100
+            time_ms = times[-1] + step * (index - len(times) + 1)
         frames.append(Frame(position, time_ms, normalise(img, FRAME_PX)))
     return frames
 
@@ -65,9 +69,14 @@ def frames(path: str, max_frames: int, timeout_s: float, max_pixels: int) -> lis
         from visualstore.media.video import count_frames, frames_at_indices, probe
 
         count = count_frames(path, timeout_s)
-        fps = probe(path, timeout_s).fps
+        info = probe(path, timeout_s)
         return frames_at_indices(
-            path, sample_indices(count, max_frames), timeout_s, max_pixels, fps
+            path,
+            sample_indices(count, max_frames),
+            timeout_s,
+            max_pixels,
+            info.fps,
+            (info.width, info.height),
         )
     count = page_count(path, max_pixels)
     return load_pages(path, sample_indices(count, max_frames), max_pixels)

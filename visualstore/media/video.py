@@ -14,6 +14,12 @@ from visualstore.media.errors import NotMedia, Unreadable
 from visualstore.media.frames import Frame
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+class TimedOut(Unreadable):
+    """ffmpeg/ffprobe exceeded media.ffmpeg_timeout_s (or could not start): fatal for the file."""
+
+
 # Library paths are user-controlled names: only the file protocol may be opened, the input is
 # always passed as file:<absolute path>, and nothing is read from stdin.
 _PROBE = ["-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file"]
@@ -38,9 +44,9 @@ def _run(args: list[str], timeout_s: float, what: str) -> bytes:
     try:
         proc = subprocess.run(args, capture_output=True, timeout=timeout_s, check=False)
     except subprocess.TimeoutExpired as exc:
-        raise Unreadable(f"{what} timed out after {timeout_s}s") from exc
+        raise TimedOut(f"{what} timed out after {timeout_s}s") from exc
     except OSError as exc:  # binary missing
-        raise Unreadable(f"{what} could not be started: {exc}") from exc
+        raise TimedOut(f"{what} could not be started: {exc}") from exc
     if proc.returncode != 0 and not proc.stdout:
         message = proc.stderr.decode("utf-8", "replace").strip().splitlines()
         raise Unreadable(f"{what} failed: {message[-1] if message else proc.returncode}")
@@ -193,17 +199,31 @@ def frame_png(path: str, time_s: float, timeout_s: float) -> bytes:
     return data
 
 
+def _ensure_pixels(
+    path: str, timeout_s: float, max_pixels: int, dims: tuple[int, int] | None
+) -> None:
+    """Probed dimensions (from probe()) spare a third ffprobe call; otherwise ask."""
+    if dims is None or not dims[0] or not dims[1]:
+        _check_pixels(path, timeout_s, max_pixels)
+    elif dims[0] * dims[1] > max_pixels:
+        raise Unreadable(f"{dims[0]}x{dims[1]} exceeds the limit of {max_pixels} pixels")
+
+
 def frames_at_times(
-    path: str, times_s: list[float], timeout_s: float, max_pixels: int
+    path: str,
+    times_s: list[float],
+    timeout_s: float,
+    max_pixels: int,
+    dims: tuple[int, int] | None = None,
 ) -> list[Frame]:
-    _check_pixels(path, timeout_s, max_pixels)
+    _ensure_pixels(path, timeout_s, max_pixels, dims)
     frames: list[Frame] = []
     for t in times_s:
         try:
             data = frame_png(path, t, timeout_s)
-        except Unreadable as exc:
-            if "timed out" in str(exc) or "could not be started" in str(exc):
-                raise
+        except TimedOut:
+            raise
+        except Unreadable:
             continue  # beyond the decodable part of a damaged file: skip this time
         decoded = image_from_png(data, max_pixels)
         frames.append(Frame(len(frames), round(t * 1000), decoded.image))
@@ -218,11 +238,16 @@ def _split_pngs(data: bytes) -> list[bytes]:
 
 
 def frames_at_indices(
-    path: str, indices: list[int], timeout_s: float, max_pixels: int, fps: float
+    path: str,
+    indices: list[int],
+    timeout_s: float,
+    max_pixels: int,
+    fps: float,
+    dims: tuple[int, int] | None = None,
 ) -> list[Frame]:
     if not indices:
         return []
-    _check_pixels(path, timeout_s, max_pixels)
+    _ensure_pixels(path, timeout_s, max_pixels, dims)
     select = "+".join(f"eq(n\\,{i})" for i in indices)
     data = _run(
         [
@@ -250,6 +275,8 @@ def frames_at_indices(
     pngs = _split_pngs(data)
     if not pngs:
         raise Unreadable("no decodable frames")
+    # ffmpeg writes the selected frames in order; a damaged frame it drops shifts the rest, so
+    # the PNGs are paired positionally and the tail is truncated rather than mis-timed.
     frames = []
     for position, (index, png) in enumerate(zip(indices, pngs, strict=False)):
         decoded = image_from_png(png, max_pixels)

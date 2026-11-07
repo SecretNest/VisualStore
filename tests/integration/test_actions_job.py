@@ -377,3 +377,22 @@ def test_restored_video_is_fingerprinted_again_too(world):
     run_apply_action(ctx_for(reg, {"restore": [id_to_str(act["id"])]}))
     queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
     assert len(queued) == 1 and json.loads(queued[0]["params"])["files"][0]["media_type"] == "video"
+
+
+def test_same_folder_rename_marks_the_file_dirty_and_ignored_directories_are_refused(world):
+    reg, conn, folder, lib, add = world
+    a = add("sub/a.jpg", b"aaa")
+    run_apply_action(ctx_for(reg, {"rename": [{"file_id": id_to_str(a), "name": "zzz.jpg"}]}))
+    assert set(groups.pop_dirty(conn)) == {a}  # the inbox "first by path" rule depends on names
+    folders.add_ignored(conn, folder, "Thumbs")
+    result = run_apply_action(
+        ctx_for(
+            reg,
+            {
+                "move": [
+                    {"file_id": id_to_str(a), "folder_id": id_to_str(folder), "directory": "Thumbs"}
+                ]
+            },
+        )
+    )
+    assert result["skipped"] == [{"id": id_to_str(a), "reason": "ignored directory"}]

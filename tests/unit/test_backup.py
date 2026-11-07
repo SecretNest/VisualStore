@@ -181,3 +181,18 @@ def test_two_backups_in_the_same_second_get_distinct_names(registry, tmp_path, m
     names = sorted(p.name for p in (tmp_path / "bk" / "a").glob("visualstore-*.db"))
     assert names == ["visualstore-20261107T120000Z-1.db", "visualstore-20261107T120000Z.db"]
     assert all(backup.parse_backup_time(tmp_path / "bk" / "a" / n) == frozen for n in names)
+
+
+def test_prune_keeps_the_newest_copies_when_names_collide_within_a_second(tmp_path):
+    directory = tmp_path / "a"
+    directory.mkdir()
+    for name in (
+        "visualstore-20260101T000000Z.db",
+        "visualstore-20260101T000000Z-1.db",
+        "visualstore-20260102T000000Z.db",
+    ):
+        (directory / name).write_bytes(b"x")
+    doomed = backup._prune(directory, "metadata", 2)
+    assert [p.name for p in doomed] == [
+        "visualstore-20260101T000000Z.db"
+    ]  # the oldest, not the "-1" sibling

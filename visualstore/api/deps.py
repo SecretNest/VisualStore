@@ -16,9 +16,14 @@ def get_state(request: Request) -> AppState:
     return request.app.state.vs
 
 
-async def require_auth(request: Request) -> None:
+def session_ok(request: Request) -> bool:
     token = request.cookies.get(COOKIE)
-    if not token or not get_state(request).signer.verify(token):
+    state = get_state(request)
+    return bool(token and state.signer.verify(token, valid_from=state.sessions_valid_from))
+
+
+async def require_auth(request: Request) -> None:
+    if not session_ok(request):
         raise HTTPException(status_code=401, detail="Not logged in.")
 
 

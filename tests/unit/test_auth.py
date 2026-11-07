@@ -64,3 +64,13 @@ def test_rate_limiter_prunes_stale_keys_so_memory_stays_bounded():
     assert len(limiter._failures) == 1500
     limiter.record_failure("fresh", now=61.0)  # everything from t=0 is stale now
     assert set(limiter._failures) == {"fresh"}
+
+
+def test_tokens_issued_before_the_valid_from_stamp_are_rejected():
+    """Logout invalidates every session issued so far (audit minor 15)."""
+    signer = SessionSigner(b"k" * 32)
+    old = signer.issue(now=1000.0)
+    assert signer.verify(old, now=1001.0)
+    assert not signer.verify(old, now=1001.0, valid_from=1000.5)
+    new = signer.issue(now=1002.0)
+    assert signer.verify(new, now=1003.0, valid_from=1000.5)

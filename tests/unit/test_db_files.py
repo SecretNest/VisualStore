@@ -61,8 +61,6 @@ def test_state_transitions_and_sha1_bucket(conn, folder):
     files.reset_for_recompute(conn, a)
     row = files.get_file(conn, a)
     assert row["state"] == "new" and row["sha1"] is None
-    files.set_missing(conn, [b])
-    assert files.get_file(conn, b)["state"] == "missing"
     files.update_path(conn, b, "moved", "b2.png")
     assert files.find_file(conn, folder, "moved", "b2.png")["id"] == b
     files.delete_files(conn, [a, b])

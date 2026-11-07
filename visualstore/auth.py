@@ -19,7 +19,8 @@ def _unb64(text: str) -> bytes:
 
 
 class SessionSigner:
-    """Tokens are `<expiry>.<hmac>`; the expiry is the only payload, so there is no user id."""
+    """Tokens are `<expiry>,<issued>.<hmac>`: no user id (single password), but the issue time
+    lets a logout invalidate every token issued so far through a `valid_from` stamp."""
 
     def __init__(self, key: bytes, ttl_seconds: int = 30 * 24 * 3600) -> None:
         if len(key) < 16:
@@ -32,10 +33,11 @@ class SessionSigner:
 
     def issue(self, now: float | None = None) -> str:
         now = time.time() if now is None else now
-        payload = str(int(now + self.ttl_seconds)).encode("ascii")
+        payload = f"{int(now + self.ttl_seconds)},{now:.3f}".encode("ascii")
         return f"{_b64(payload)}.{_b64(self._sign(payload))}"
 
-    def verify(self, token: str, now: float | None = None) -> bool:
+    def verify(self, token: str, now: float | None = None, valid_from: float = 0.0) -> bool:
+        """True for an untampered, unexpired token issued at or after `valid_from`."""
         now = time.time() if now is None else now
         try:
             payload_text, sig_text = token.split(".")
@@ -46,10 +48,12 @@ class SessionSigner:
         if not hmac.compare_digest(signature, self._sign(payload)):
             return False
         try:
-            expiry = int(payload.decode("ascii"))
+            expiry_text, _, issued_text = payload.decode("ascii").partition(",")
+            expiry = int(expiry_text)
+            issued = float(issued_text) if issued_text else 0.0
         except (ValueError, UnicodeDecodeError):
             return False
-        return expiry > now
+        return expiry > now and issued >= valid_from
 
 
 def password_matches(expected: str, given: str) -> bool:

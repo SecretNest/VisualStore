@@ -38,13 +38,13 @@ def plan_group(
     members: Sequence[Member],
     folder_names: dict[bytes, str],
     *,
-    all_identical: bool,
     kept_edges: Iterable[tuple[bytes, bytes]] = (),
 ) -> GroupPlan | None:
     """The default resolution for one group, or None when the rules leave a member undecided,
     delete nothing, or would delete an end of a `related_keep` edge (a human said keep both):
     such groups are skipped by a bulk run (Global Constraints)."""
-    pre = preselect(members, all_identical=all_identical, auto_execute_identical=False)
+    # all_identical only matters for automatic execution, which a bulk run never does
+    pre = preselect(members, all_identical=False, auto_execute_identical=False)
     if any(d == "undecided" for d in pre.decisions.values()):
         return None
     decisions = propagate_keep(pre.decisions, kept_edges)

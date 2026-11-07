@@ -105,7 +105,7 @@ def _existing_group(conn: sqlite3.Connection, comp: Component):
 
 
 def run_regroup(ctx: IoContext) -> dict:
-    group_distance = float(ctx.settings.get("grouping.group_distance", 0.2))
+    group_distance = float(ctx.settings.get("grouping.group_distance", 0.3))
     auto_setting = bool(ctx.settings.get("resolution.auto_execute_identical", True))
     model_id = ctx.settings.get("model.id")
     stats = {"components": 0, "groups": 0, "auto_executed": 0}

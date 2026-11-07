@@ -277,3 +277,12 @@ def test_next_group_walks_the_queue_in_order_and_skips_groups_awaiting_execution
     with conn:
         conn.execute("UPDATE file_group SET status = 'resolved'")
     assert client.get(f"/api/p/a/groups/{g3}/next").json()["id"] is None
+
+
+def test_moving_a_file_to_where_it_already_is_is_a_400_not_a_409(client, seeded):
+    s = seeded
+    b = id_to_str(s["b"])
+    r = client.post(
+        f"/api/p/a/files/{b}/move", json={"folder_id": id_to_str(s["inbox"]), "directory": ""}
+    )
+    assert r.status_code == 400 and "already" in r.json()["detail"]

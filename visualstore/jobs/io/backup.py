@@ -52,6 +52,12 @@ def parse_backup_time(path: Path) -> datetime | None:
     return None
 
 
+def _collision(path: Path) -> int:
+    """The -1, -2 suffix of a same-second backup: later copies sort after the first."""
+    tail = path.stem.rsplit("-", 1)[-1]
+    return int(tail) if tail.isdigit() and "T" not in tail else 0
+
+
 def _unique(dest: Path) -> Path:
     """Two backups within one second must not overwrite each other."""
     if not dest.exists():
@@ -148,7 +154,10 @@ def _copy_sqlite(src: Path, dest: Path) -> None:
 
 
 def _prune(directory: Path, target: str, keep: int) -> list[Path]:
-    files = sorted(directory.glob(f"{PREFIX[target]}-*.db"), key=lambda p: p.name)
+    files = sorted(
+        directory.glob(f"{PREFIX[target]}-*.db"),
+        key=lambda p: (parse_backup_time(p) or datetime.min.replace(tzinfo=UTC), _collision(p)),
+    )
     doomed = files[: max(0, len(files) - keep)]
     for path in doomed:
         path.unlink()

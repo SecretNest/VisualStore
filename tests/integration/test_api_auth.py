@@ -91,3 +91,14 @@ def test_changing_the_password_invalidates_existing_sessions(config):
     with TestClient(create_app(rotated)) as c2:
         response = c2.get("/api/system/status", headers={"Cookie": f"visualstore_session={cookie}"})
         assert response.status_code == 401
+
+
+def test_logout_invalidates_the_token_itself_not_only_the_cookie(client):
+    login(client)
+    token = client.cookies.get("visualstore_session")
+    assert client.get("/api/profiles").status_code == 200
+    client.post("/api/auth/logout")
+    client.cookies.set("visualstore_session", token)  # a copy of the old cookie is replayed
+    assert client.get("/api/profiles").status_code == 401
+    login(client)  # a fresh login works
+    assert client.get("/api/profiles").status_code == 200

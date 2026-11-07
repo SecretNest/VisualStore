@@ -90,3 +90,25 @@ def test_local_registry_in_the_model_dir_adds_and_overrides_entries_as_local_onl
     (model_dir / "models.json").write_text("{nope")
     with pytest.raises(ModelError, match="not a valid model registry"):
         registry.load_registry(model_dir)
+
+
+def test_resolve_hashes_a_present_file_once_per_size_and_mtime(tmp_path, monkeypatch):
+    """A 100 MB model is not re-hashed on every scan (audit minor)."""
+    import visualstore.models.registry as reg_mod
+
+    s = spec(tmp_path)
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / s.file_name()).write_bytes(b"onnx-bytes")
+    calls = []
+    real = reg_mod.sha256_of
+    monkeypatch.setattr(reg_mod, "sha256_of", lambda p: (calls.append(p), real(p))[1])
+    reg_mod.resolve_model_path(s, model_dir)
+    reg_mod.resolve_model_path(s, model_dir)
+    assert len(calls) == 1
+    (model_dir / s.file_name()).write_bytes(b"onnx-bytes")  # rewritten: size same, mtime may differ
+    import os
+
+    os.utime(model_dir / s.file_name(), (1, 1))
+    reg_mod.resolve_model_path(s, model_dir)
+    assert len(calls) == 2

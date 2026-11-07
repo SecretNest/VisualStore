@@ -33,11 +33,10 @@ def plan_for_group(conn: sqlite3.Connection, row: sqlite3.Row) -> GroupPlan | No
         for p in pairs_db.inner_pairs(conn, {m.file_id for m in members})
         if p["judgment"] != "unrelated"
     ]
-    all_identical = bool(inner) and all(p["source"] == "sha1" for p in inner)
     kept = [
         (bytes(p["file_a"]), bytes(p["file_b"])) for p in inner if p["judgment"] == "related_keep"
     ]
-    return plan_group(gid, members, names, all_identical=all_identical, kept_edges=kept)
+    return plan_group(gid, members, names, kept_edges=kept)
 
 
 def plan_for_filter(

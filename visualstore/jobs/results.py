@@ -237,7 +237,9 @@ def sink_fingerprint(ctx: SinkContext) -> None:
             text = entry["id"]
             path = ctx.paths.thumbs / text[:2] / f"{text}.webp"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(base64.b64decode(entry["thumbnail"]))
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(base64.b64decode(entry["thumbnail"]))
+            tmp.replace(path)  # never serve a half-written thumbnail
             (ctx.paths.previews / text[:2] / f"{text}.webp").unlink(missing_ok=True)
             for stale in (ctx.paths.previews / "frames" / text[:2]).glob(f"{text}-*.webp"):
                 stale.unlink(missing_ok=True)
@@ -318,9 +320,6 @@ def sink_match(ctx: SinkContext) -> None:
     removed = [int(s) for s in ctx.params.get("remove", [])]
     if removed:
         fp.drop_keys(vconn, removed)
-    if fp.get_meta(vconn, "model_id") is None:
-        fp.set_meta(vconn, "model_id", model["id"])
-        fp.set_meta(vconn, "dim", str(int(model["dim"])))
 
 
 RESULT_SINKS["match"] = sink_match

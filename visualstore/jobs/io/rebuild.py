@@ -24,12 +24,21 @@ def run_rebuild_index(ctx: IoContext) -> dict:
     spec = get_spec(ctx.settings["model.id"], ctx.model_dir)
     export = ctx.paths.root / EXPORT_NAME
     with closing(ctx.open_vectors()) as vconn, closing(ctx.open_metadata()) as conn:
+        total = fp.vector_count(vconn, spec.id)
+        vectors = np.empty((total, spec.dim), dtype=np.float16)  # one copy, filled in place
         keys: list[int] = []
-        chunks: list[np.ndarray] = []
         for rows in fp.iter_vectors(vconn, spec.id):
-            keys.extend(r["seq"] for r in rows)
-            chunks.append(np.array([np.frombuffer(r["vector"], dtype=np.float16) for r in rows]))
+            for r in rows:
+                if len(keys) < total:
+                    vectors[len(keys)] = np.frombuffer(r["vector"], dtype=np.float16)
+                keys.append(r["seq"])
             ctx.report({"done": len(keys), "total": 0, "message": f"exported {len(keys)} vectors"})
+        if len(keys) != total:  # rows changed under us: trim or extend to what was read
+            vectors = (
+                vectors[: len(keys)]
+                if len(keys) < total
+                else np.concatenate([vectors, np.zeros((len(keys) - total, spec.dim), np.float16)])
+            )
         priority = int(ctx.params.get("priority", PRIORITY_INBOX))
         options = index_options(ctx.settings, ctx.paths, spec.dim, vector_count=len(keys))
         if not options["pca_dims"]:
@@ -45,11 +54,8 @@ def run_rebuild_index(ctx: IoContext) -> dict:
                 conn, vconn, ctx.settings, ctx.paths, ctx.model_dir, -1, priority
             )
             return {"exported": 0, "built": True, "match_jobs": matched}
-        vectors = np.concatenate(chunks).reshape(len(keys), spec.dim)
-        if options["pca_dims"]:  # fitted on this profile's own vectors (ADR-0008)
-            pca.save(
-                pca.fit(vectors.astype(np.float32), options["pca_dims"]), Path(options["pca_path"])
-            )
+        if options["pca_dims"]:  # fitted on a sample of this profile's own vectors (ADR-0008)
+            pca.save(pca.fit(vectors, options["pca_dims"]), Path(options["pca_path"]))
         np.savez(export, keys=np.asarray(keys, dtype=np.uint64), vectors=vectors)
         jobs_db.enqueue(
             conn,

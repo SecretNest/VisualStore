@@ -32,3 +32,12 @@ def test_thresholds_from_settings_and_bounds():
     assert BANDS[0] == "identical"
     with pytest.raises(ValueError):
         band_bounds("nope", t)
+
+
+def test_identical_groups_are_identical_whatever_their_min_distance():
+    """band() and count_by_band() must agree: has_identical decides (audit minor)."""
+    from visualstore.domain.bands import Thresholds, band
+
+    t = Thresholds(0.15, 0.3)
+    assert band(0.2, True, t) == "identical" and band(None, True, t) == "identical"
+    assert band(0.2, False, t) == "variant"

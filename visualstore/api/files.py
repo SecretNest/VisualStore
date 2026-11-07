@@ -19,7 +19,7 @@ from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db import pairs as pairs_db
 from visualstore.db import settings as settings_db
-from visualstore.domain.paths import TRASH_DIR, normalise_relative
+from visualstore.domain.paths import TRASH_DIR, is_under, normalise_relative
 from visualstore.ids import id_to_str
 from visualstore.jobs.types import PRIORITY_USER
 from visualstore.media.errors import NotMedia, Unreadable
@@ -135,7 +135,8 @@ async def file_preview(
     conn = state.registry.conn(name)
     fid = parse_id(file_id)
     row, folder = _file_and_folder(conn, fid)
-    cache = state.registry.paths(name).previews / file_id[:2] / f"{file_id}.webp"
+    text = id_to_str(fid)  # canonical form: the sink invalidates by this name
+    cache = state.registry.paths(name).previews / text[:2] / f"{text}.webp"
     if cache.is_file():
         return FileResponse(cache, media_type="image/webp")
     path = Path(folder["path"]) / files_db.relative_path(row["directory"], row["name"])
@@ -199,10 +200,16 @@ def _render_frame(path: str, media_type: str, index: int, time_ms: int, settings
     pages = animated.page_count(path, max_pixels)
     if pages <= 1:
         return preview_webp(path, PREVIEW_PX, max_pixels)
-    source_pages = sample_indices(pages, int(settings["frames.max_per_file"]))
-    if index >= len(source_pages):
-        raise Unreadable(f"frame {index} is beyond the sampled pages")
-    [frame] = animated.load_pages(path, [source_pages[index]], max_pixels)
+    # The stored frame time identifies the page even if frames.max_per_file changed since.
+    times = animated.page_times_ms(path)
+    if time_ms in times:
+        page = times.index(time_ms)
+    else:
+        source_pages = sample_indices(pages, int(settings["frames.max_per_file"]))
+        if index >= len(source_pages):
+            raise Unreadable(f"frame {index} is beyond the sampled pages")
+        page = source_pages[index]
+    [frame] = animated.load_pages(path, [page], max_pixels)
     from visualstore.media.decode import Decoded
 
     return thumbnail_webp(Decoded(frame.image, frame.image.width, frame.image.height), PREVIEW_PX)
@@ -238,8 +245,8 @@ async def file_frame(
 async def file_thumbnail(
     file_id: str, request: Request, name: str = Depends(get_profile)
 ) -> FileResponse:
-    parse_id(file_id)
-    path = get_state(request).registry.paths(name).thumbs / file_id[:2] / f"{file_id}.webp"
+    text = id_to_str(parse_id(file_id))
+    path = get_state(request).registry.paths(name).thumbs / text[:2] / f"{text}.webp"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="No thumbnail yet.")
     return FileResponse(path, media_type="image/webp")
@@ -298,6 +305,14 @@ async def move_file_endpoint(
     target = folders_db.get_folder(conn, parse_id(body.folder_id))
     if target is None:
         raise HTTPException(status_code=404, detail="No such Folder.")
+    if bytes(target["id"]) == bytes(row["folder_id"]) and directory == row["directory"]:
+        raise HTTPException(status_code=400, detail="The file is already there.")
+    rel = files_db.relative_path(directory, row["name"])
+    for ign in folders_db.list_ignored(conn, bytes(target["id"])):
+        if is_under(rel, ign["directory"], bool(ign["recursive"])):
+            raise HTTPException(
+                status_code=400, detail="That directory is ignored by scans; pick another."
+            )
     _check_free(conn, target, directory, row["name"], fid)
     return _queue(
         conn, {"move": [{"file_id": file_id, "folder_id": body.folder_id, "directory": directory}]}

@@ -138,3 +138,15 @@ def test_usage_bytes_is_cached_briefly_and_invalidated_on_delete(registry):
     assert registry.usage_bytes("u") == first  # cached
     registry.invalidate_usage("u")
     assert registry.usage_bytes("u") >= first + 4096
+
+
+def test_delete_is_refused_while_the_profile_has_running_jobs(registry):
+    from visualstore.db import jobs as jobs_db
+
+    registry.create("busy")
+    conn = registry.conn("busy")
+    job = jobs_db.enqueue(conn, type="ping", kind="compute")
+    jobs_db.mark_running(conn, job)
+    with pytest.raises(ProfileError, match="running"):
+        registry.delete("busy", confirm_name="busy")
+    assert registry.exists("busy")

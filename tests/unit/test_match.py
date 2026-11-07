@@ -158,10 +158,8 @@ def test_sink_match_applies_scope_and_writes_pairs(world):
     assert all(p["source"] == "vector" and p["model_id"] == M["id"] for p in got.values())
     assert set(groups.pop_dirty(conn)) == {a1, a3, i1}
     assert jobs_db.has_active(conn, "regroup")
-    assert (
-        fingerprints.get_meta(vconn, "model_id") == M["id"]
-        and fingerprints.get_meta(vconn, "dim") == "4"
-    )
+    # index_meta is written by the build (rebuild_index / build_index), never by sink_match
+    assert fingerprints.get_meta(vconn, "model_id") is None
     assert RESULT_SINKS["match"] is sink_match
 
 
@@ -202,3 +200,23 @@ def test_match_handler_replaces_vectors_of_reused_keys(tmp_path):
     )
     assert again["count"] == 2
     assert {(q, h) for q, h, _ in again["hits"]} == {(1, 2)}
+
+
+def test_build_index_removes_the_export_even_when_the_build_fails(tmp_path):
+    import numpy as np
+
+    from visualstore.jobs.compute.handlers import build_index
+
+    export = tmp_path / "index.export.npz"
+    np.savez(export, keys=np.array([1], dtype=np.uint64), vectors=np.zeros((1, 4), np.float32))
+    with pytest.raises(Exception):  # noqa: B017 - any failure; the dim is wrong on purpose
+        build_index(
+            {
+                "export_path": str(export),
+                "index_path": str(tmp_path / "i.usearch"),
+                "dim": 8,
+                "model_id": "m",
+            },
+            lambda p: None,
+        )
+    assert not export.exists()

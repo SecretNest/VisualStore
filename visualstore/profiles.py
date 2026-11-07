@@ -10,6 +10,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -223,6 +224,16 @@ class ProfileRegistry:
         self.get(name)
         if confirm_name != name:
             raise ProfileError("Type the profile name exactly to confirm deletion.")
+        running = (
+            self.conn(name)
+            .execute("SELECT COUNT(*) FROM job WHERE state = 'running'")
+            .fetchone()[0]
+        )
+        if running:
+            raise ProfileError(
+                f"Profile {name!r} has {running} running job(s); wait for them or cancel the"
+                " queue first."
+            )
         self._close_profile(name)
         self.invalidate_usage(name)
         root = self.paths(name).root
@@ -232,7 +243,22 @@ class ProfileRegistry:
         with g:
             g.execute("DELETE FROM profile WHERE name = ?", (name,))
 
-    # -- secrets -----------------------------------------------------------------------
+    # -- secrets and stamps ------------------------------------------------------------
+
+    def get_stamp(self, key: str) -> float:
+        """A timestamp kept in global.db (0.0 when unset), e.g. the session cut-off."""
+        g = self.global_conn()
+        row = g.execute("SELECT value FROM secret WHERE key = ?", (f"stamp:{key}",)).fetchone()
+        return struct.unpack(">d", bytes(row["value"]))[0] if row is not None else 0.0
+
+    def set_stamp(self, key: str, value: float) -> None:
+        g = self.global_conn()
+        with g:
+            g.execute(
+                "INSERT INTO secret (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"stamp:{key}", struct.pack(">d", float(value))),
+            )
 
     def secret(self, key: str) -> bytes:
         """A random 32-byte value created on first use and kept in global.db."""

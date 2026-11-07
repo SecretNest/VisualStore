@@ -52,6 +52,7 @@ class AppState:
     signer: SessionSigner
     limiter: LoginRateLimiter
     started_at: float = 0.0  # monotonic clock at start-up, for the health probe
+    sessions_valid_from: float = 0.0  # tokens issued before this (epoch seconds) are rejected
 
 
 def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
@@ -95,6 +96,7 @@ def create_app(config: Config, static_dir: Path | None = None) -> FastAPI:
             signer=signer,
             limiter=LoginRateLimiter(),
             started_at=time.monotonic(),
+            sessions_valid_from=registry.get_stamp("sessions_valid_from"),
         )
         try:
             yield

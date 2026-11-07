@@ -1,9 +1,11 @@
 """Single-password login (design §9.2)."""
 
+import time
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from visualstore.api.deps import COOKIE, get_state
+from visualstore.api.deps import COOKIE, get_state, session_ok
 from visualstore.auth import password_matches
 
 # Handlers are async so they run on the event-loop thread: the rate limiter's check and
@@ -43,13 +45,16 @@ async def login(body: LoginRequest, request: Request, response: Response) -> dic
 
 
 @router.post("/logout")
-async def logout(response: Response) -> dict:
+async def logout(request: Request, response: Response) -> dict:
+    """Single password, single operator: logging out invalidates every session issued so far,
+    not just this browser's cookie (a copied cookie would otherwise stay valid for 30 days)."""
+    state = get_state(request)
+    state.sessions_valid_from = time.time()
+    state.registry.set_stamp("sessions_valid_from", state.sessions_valid_from)
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
 
 
 @router.get("/me")
 async def me(request: Request) -> dict:
-    token = request.cookies.get(COOKIE)
-    state = get_state(request)
-    return {"authenticated": bool(token and state.signer.verify(token))}
+    return {"authenticated": session_ok(request)}

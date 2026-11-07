@@ -97,11 +97,6 @@ def reset_for_recompute(conn: sqlite3.Connection, file_id: bytes) -> None:
         conn.execute("INSERT OR IGNORE INTO regroup_queue (file_id) VALUES (?)", (file_id,))
 
 
-def set_missing(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:
-    with conn:
-        conn.executemany("UPDATE file SET state = 'missing' WHERE id = ?", [(f,) for f in file_ids])
-
-
 def delete_files(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:
     ids = list(file_ids)
     with conn:

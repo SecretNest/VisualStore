@@ -134,7 +134,11 @@ def folder_to_dict(row: sqlite3.Row) -> dict:
 
 
 def add_ignored(
-    conn: sqlite3.Connection, folder_id: bytes, directory: str, recursive: bool = True
+    conn: sqlite3.Connection,
+    folder_id: bytes,
+    directory: str,
+    recursive: bool = True,
+    ignored_id: bytes | None = None,
 ) -> bytes:
     rel = normalise_relative(directory)
     if not rel:
@@ -145,7 +149,7 @@ def add_ignored(
         "SELECT 1 FROM ignored_directory WHERE folder_id = ? AND directory = ?", (folder_id, rel)
     ).fetchone():
         raise FolderError(f"'{rel}' is already ignored.")
-    ignored_id = new_id()
+    ignored_id = ignored_id or new_id()
     with conn:
         conn.execute(
             "INSERT INTO ignored_directory (id, folder_id, directory, recursive)"

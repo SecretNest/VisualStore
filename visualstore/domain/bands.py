@@ -21,7 +21,7 @@ def thresholds_from(settings: dict) -> Thresholds:
 
 
 def band(distance: float | None, has_identical: bool, t: Thresholds) -> str:
-    if has_identical and (distance is None or distance <= 0):
+    if has_identical:  # a byte-identical pair inside: the group is identical (as count_by_band)
         return "identical"
     if distance is None:
         return "candidate"

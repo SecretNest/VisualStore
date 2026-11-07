@@ -241,3 +241,26 @@ def test_groups_with_a_related_keep_judgment_that_overrides_the_rules_are_skippe
     assert (
         files.get_file(conn, ids["i1"]) is not None and files.get_file(conn, ids["i2"]) is not None
     )
+
+
+def test_a_disk_failure_in_the_last_group_still_queues_the_regroup(world, monkeypatch):
+    client = world["client"]
+    import visualstore.jobs.io.bulk_resolve as bulk_mod
+    from visualstore.jobs.io.actions import ActionError
+
+    real = bulk_mod.execute_action
+    calls = {"n": 0}
+
+    def flaky(conn_, vconn, ctx, params, now):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise ActionError("disk full")
+        return real(conn_, vconn, ctx, params, now)
+
+    monkeypatch.setattr(bulk_mod, "execute_action", flaky)
+    p = client.post("/api/p/a/groups/bulk/preview", json={}).json()
+    job = client.post("/api/p/a/groups/bulk/execute", json={"token": p["token"]})
+    done = wait_for(client, "a", job.json()["id"])
+    result = done["progress"]["result"]
+    assert result["trashed"] >= 1 and any(s["reason"] == "disk full" for s in result["skipped"])
+    assert any(j["type"] == "regroup" for j in client.get("/api/p/a/jobs?limit=100").json())

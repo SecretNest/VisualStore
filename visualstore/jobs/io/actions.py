@@ -16,7 +16,7 @@ from visualstore.db import fingerprints as fp
 from visualstore.db import folders as folders_db
 from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
-from visualstore.domain.paths import TRASH_DIR, normalise_relative
+from visualstore.domain.paths import TRASH_DIR, is_under, normalise_relative
 from visualstore.ids import id_from_str, id_to_str
 from visualstore.jobs import results
 from visualstore.jobs.io.scan import _abs
@@ -249,6 +249,10 @@ def _relocate(
         return "bad name"
     if TRASH_DIR in (*directory.split("/"), name):
         return "bad name"  # the trash tree is not scanned: the file would vanish from the library
+    rel = files_db.relative_path(directory, name)
+    for ign in folders_db.list_ignored(conn, bytes(target_folder["id"])):
+        if is_under(rel, ign["directory"], bool(ign["recursive"])):
+            return "ignored directory"  # scans skip it: the file would vanish too
     source_folder = folders_db.get_folder(conn, bytes(row["folder_id"]))
     src = Path(source_folder["path"]) / files_db.relative_path(row["directory"], row["name"])
     if not src.is_file():
@@ -274,8 +278,7 @@ def _relocate(
     }
     files_db.update_location(conn, file_id, bytes(target_folder["id"]), directory, name)
     actions_db.record(conn, kind, file_id, before, after)
-    if bytes(target_folder["id"]) != bytes(row["folder_id"]):
-        groups_db.mark_dirty(conn, [file_id])  # the role may differ: preselection changes
+    groups_db.mark_dirty(conn, [file_id])  # role, priority and "first by path" all depend on this
     remove_empty_parents(src.parent, Path(source_folder["path"]))
     return None
 

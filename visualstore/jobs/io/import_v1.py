@@ -6,6 +6,7 @@ import sqlite3
 import uuid
 from contextlib import closing
 from pathlib import Path
+from urllib.parse import quote
 
 from visualstore.db import files as files_db
 from visualstore.db import folders as folders_db
@@ -47,7 +48,7 @@ def _open_v1(path: str) -> sqlite3.Connection:
     if not p.is_file():
         raise ImportError_(f"v1 database not found: {path}")
     try:
-        conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{quote(str(p.resolve()))}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         conn.execute("SELECT 1 FROM Folder LIMIT 1")
     except sqlite3.Error as exc:
@@ -86,7 +87,11 @@ def _import_folders(conn, v1, v1_folders, mapping, stats) -> dict[bytes, bytes]:
         if folder is not None and normalise_relative(d["Directory"]):
             try:
                 folders_db.add_ignored(
-                    conn, folder, d["Directory"], bool(d["IsSubDirectoryIncluded"])
+                    conn,
+                    folder,
+                    d["Directory"],
+                    bool(d["IsSubDirectoryIncluded"]),
+                    ignored_id=gid(d["Id"]),  # v1 ids are kept (design §10)
                 )
             except folders_db.FolderError:
                 pass  # duplicate after normalisation
