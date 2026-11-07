@@ -74,6 +74,8 @@ def get(conn: sqlite3.Connection, key: str) -> Any:
 def set(conn: sqlite3.Connection, key: str, value: Any) -> None:  # noqa: A001 - mirrors get()
     if key not in DEFAULTS:
         raise KeyError(key)
+    if isinstance(DEFAULTS[key], float) and type(value) is int:
+        value = float(value)  # JSON has one number type: 1 for a float setting is fine
     if type(value) is not type(DEFAULTS[key]):
         raise TypeError(
             f"setting {key!r} expects {type(DEFAULTS[key]).__name__}, got {type(value).__name__}"

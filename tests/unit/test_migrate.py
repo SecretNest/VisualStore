@@ -41,7 +41,7 @@ def test_connect_applies_pragmas(tmp_path):
 def test_shipped_migrations_create_expected_tables(tmp_path, name, tables):
     conn = connect(tmp_path / f"{name}.db")
     version = migrate(conn, migrations_dir(name))
-    assert version == {"global": 1, "profile": 4, "vectors": 2}[name]
+    assert version == {"global": 1, "profile": 5, "vectors": 2}[name]
     names = {
         r["name"]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -52,10 +52,10 @@ def test_shipped_migrations_create_expected_tables(tmp_path, name, tables):
 
 def test_migrate_is_idempotent(tmp_path):
     conn = connect(tmp_path / "p.db")
-    assert migrate(conn, migrations_dir("profile")) == 4
-    assert migrate(conn, migrations_dir("profile")) == 4
-    assert current_version(conn) == 4
-    assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 4
+    assert migrate(conn, migrations_dir("profile")) == 5
+    assert migrate(conn, migrations_dir("profile")) == 5
+    assert current_version(conn) == 5
+    assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 5
 
 
 def test_fresh_database_reports_version_zero(tmp_path):

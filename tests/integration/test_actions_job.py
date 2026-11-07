@@ -172,6 +172,28 @@ def test_permanent_delete_when_trash_disabled(world):
     assert actions.list_trash(conn) == []  # permanent deletions are not restorable
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+def test_purge_continues_past_a_file_it_cannot_remove(world):
+    """Audit 2026-11-07: one undeletable file must not stop every later purge."""
+    reg, conn, folder, lib, add = world
+    a = add("sub/old.jpg", b"o")
+    b = add("old2.jpg", b"p")
+    run_apply_action(ctx_for(reg, {"trash": [id_to_str(a), id_to_str(b)]}))
+    forty_days_ago = (datetime.now(UTC) - timedelta(days=40)).isoformat(timespec="seconds")
+    with conn:
+        conn.execute("UPDATE action SET at = ?", (forty_days_ago,))
+    locked_dir = next(p for p in (lib / ".visualstore-trash").rglob("sub") if p.is_dir())
+    locked_dir.chmod(0o500)
+    try:
+        with pytest.raises(ActionError, match="1 purged; 1 could not be removed"):
+            run_purge_trash(ctx_for(reg, {}))
+    finally:
+        locked_dir.chmod(0o700)
+    remaining = [actions.action_to_dict(r)["before"]["name"] for r in actions.list_trash(conn)]
+    assert remaining == ["old.jpg"]  # kept for the next run; old2.jpg is gone and superseded
+    assert run_purge_trash(ctx_for(reg, {})) == {"purged": 1, "missing": 0}
+
+
 def test_purge_removes_expired_trash_and_empty_dirs(world):
     reg, conn, folder, lib, add = world
     a = add("sub/old.jpg", b"o")

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from visualstore.db.util import chunked
+
 if TYPE_CHECKING:
     from visualstore.profiles import ProfilePaths, ProfileRegistry
 
@@ -220,6 +222,8 @@ def sink_fingerprint(ctx: SinkContext) -> None:
         row = files_db.get_file(conn, file_id)
         if row is None or _stale(row, entry):
             continue  # deleted/trashed since the job was queued, or content changed meanwhile
+        if entry["state"] not in ("fingerprinted", "unreadable", "not_media"):
+            continue  # "retry": the file could not be opened at that moment; the scan decides
         sha1 = bytes.fromhex(entry["sha1"]) if entry.get("sha1") else None
         files_db.set_fingerprint_result(conn, file_id, sha1=sha1, state=entry["state"])
         if entry.get("width") and entry.get("height"):
@@ -298,12 +302,12 @@ def sink_match(ctx: SinkContext) -> None:
             best[key] = float(distance)
     involved = {f for pair in best for f in pair}
     scopes: dict[bytes, ScopeInfo] = {}
-    if involved:
-        marks = ",".join("?" * len(involved))
+    for chunk in chunked(sorted(involved)):
+        marks = ",".join("?" * len(chunk))
         rows = conn.execute(
             "SELECT f.id, f.folder_id, f.directory, fo.compare_scope FROM file f"
             f" JOIN folder fo ON fo.id = f.folder_id WHERE f.id IN ({marks})",
-            list(involved),
+            chunk,
         )
         for r in rows:
             scopes[bytes(r["id"])] = ScopeInfo(

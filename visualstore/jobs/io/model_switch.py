@@ -100,6 +100,11 @@ def run_model_switch(ctx: IoContext) -> dict:
         cancelled = _cancel_foreign_jobs(conn, spec.id)
         settings = {**ctx.settings, "model.id": spec.id}
         queued_files, jobs_made = queue_missing_vectors(conn, vconn, settings, ctx.model_dir)
+        # Files a scan had queued under the old model lost their jobs above; without this they
+        # would wait for the next scan (audit 2026-11-07).
+        from visualstore.jobs.io.scan import requeue_new_files  # noqa: PLC0415 - scan imports us
+
+        jobs_made += requeue_new_files(conn, ctx, settings)
         rebuild = not (
             jobs_db.has_active(conn, "rebuild_index") or jobs_db.has_active(conn, "build_index")
         )

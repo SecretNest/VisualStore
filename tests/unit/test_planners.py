@@ -115,3 +115,33 @@ def test_plan_maintenance_is_weekly_and_never_doubles(registry):
         )
     assert plan_maintenance(registry, now + timedelta(days=6)) == 0
     assert plan_maintenance(registry, now + timedelta(days=8)) == 1
+
+
+def test_plan_regroup_backs_off_while_the_latest_regroup_is_failed(registry):
+    """Audit 2026-11-07: the same seeds would fail again every minute."""
+    from visualstore.db import files, groups
+    from visualstore.jobs.io.planners import plan_regroup
+
+    conn = registry.conn("a")
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    fid = files.insert_file(
+        conn,
+        folder_id=bytes(folders.list_folders(conn)[0]["id"]),
+        directory="",
+        name="x.jpg",
+        extension_id=ext,
+        size=1,
+        mtime=1,
+    )
+    groups.mark_dirty(conn, [fid])
+    assert plan_regroup(registry) == 1
+    [job] = [j for j in jobs_db.list_jobs(conn) if j["type"] == "regroup"]
+    for _ in range(3):
+        jobs_db.mark_running(conn, job["id"])
+        jobs_db.record_failure(conn, job["id"], "boom", backoff=False)
+    assert jobs_db.get(conn, job["id"])["state"] == "failed"
+    assert plan_regroup(registry) == 0  # not re-enqueued
+    assert jobs_db.retry(conn, job["id"])  # the operator's retry lifts the hold
+    jobs_db.mark_running(conn, job["id"])
+    jobs_db.mark_done(conn, job["id"])
+    assert plan_regroup(registry) == 1

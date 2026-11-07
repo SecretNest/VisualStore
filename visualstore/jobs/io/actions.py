@@ -357,6 +357,7 @@ def run_purge_trash(ctx: IoContext) -> dict:
     days = int(ctx.settings.get("trash.retention_days", 30))
     cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
     purged = missing = 0
+    errors: list[str] = []
     with closing(ctx.open_metadata()) as conn:
         for act in actions_db.trash_older_than(conn, cutoff):
             d = actions_db.action_to_dict(act)
@@ -365,7 +366,10 @@ def run_purge_trash(ctx: IoContext) -> dict:
                 try:
                     path.unlink()
                 except OSError as exc:
-                    raise ActionError(f"could not purge {path}: {exc}") from exc
+                    # One stubborn file must not hold the whole trash hostage: keep its entry
+                    # for the next run and carry on (audit 2026-11-07).
+                    errors.append(f"{path}: {exc}")
+                    continue
                 purged += 1
             else:
                 missing += 1
@@ -377,4 +381,8 @@ def run_purge_trash(ctx: IoContext) -> dict:
                 folder = folders_db.get_folder(conn, id_from_str(d["before"]["folder_id"]))
                 if folder is not None:
                     remove_empty_parents(path.parent, Path(folder["path"]))
+    if errors:
+        raise ActionError(
+            f"{purged} purged; {len(errors)} could not be removed: " + "; ".join(errors[:5])
+        )
     return {"purged": purged, "missing": missing}

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from visualstore.api.deps import get_profile, get_state, require_auth
 from visualstore.db import jobs as jobs_db
-from visualstore.jobs.types import KIND_OF, PRIORITY_USER
+from visualstore.jobs.types import INTERNAL_JOB_TYPES, KIND_OF, PRIORITY_USER
 
 router = APIRouter(prefix="/api/p/{name}/jobs", tags=["jobs"], dependencies=[Depends(require_auth)])
 
@@ -87,7 +87,13 @@ async def retry_job(job_id: str, request: Request, name: str = Depends(get_profi
 @router.post("/{job_id}/cancel")
 async def cancel_job(job_id: str, request: Request, name: str = Depends(get_profile)) -> dict:
     conn = get_state(request).registry.conn(name)
-    raw, _ = _job_or_404(conn, job_id)
+    raw, row = _job_or_404(conn, job_id)
+    if row["type"] in INTERNAL_JOB_TYPES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{row['type']} jobs carry index or file work that nothing else repeats;"
+            " they cannot be cancelled.",
+        )
     if not jobs_db.cancel(conn, raw):
         raise HTTPException(status_code=409, detail="Only queued jobs can be cancelled.")
     return jobs_db.to_dict(jobs_db.get(conn, raw))

@@ -178,7 +178,8 @@ def test_match_params_describe_the_index_on_disk_not_the_settings(world):  # noq
 
 
 def test_i8_rebuild_returns_the_same_nearest_neighbours_as_f16(world):  # noqa: F811
-    """Review Focus 1: quantisation must not change which files are near each other."""
+    """Review Focus 1: quantisation must not change which files are near each other. Also the
+    regression test for the multi-threaded usearch add that lost recall (audit 2026-11-07)."""
     from visualstore.index.usearch_index import VectorIndex
 
     reg = world

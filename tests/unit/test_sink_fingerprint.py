@@ -120,3 +120,10 @@ def test_dimensions_from_the_result_are_stored_on_the_file(db):
     sink(reg, {"files": [{**entry(a), "width": 640, "height": 480}]})
     row = files.get_file(conn, a)
     assert (row["width"], row["height"]) == (640, 480)
+
+
+def test_retry_entries_leave_the_row_for_the_next_scan(db):
+    reg, conn, ids = db
+    sink(reg, {"files": [{"id": id_to_str(ids[0]), "sha1": None, "state": "retry", "reason": "x"}]})
+    row = files.get_file(conn, ids[0])
+    assert row["state"] == "new" and row["sha1"] is None

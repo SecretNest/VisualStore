@@ -33,12 +33,15 @@ def test_fingerprint_reports_each_file_and_progress(tmp_path):
     assert by_id["A"]["state"] == "fingerprinted" and by_id["A"]["size"] == 3
     assert by_id["A"]["mtime"] == (tmp_path / "a.jpg").stat().st_mtime_ns
     assert by_id["B"]["sha1"] == hashlib.sha1(b"bbb").hexdigest()
-    assert by_id["C"] == {"id": "C", "sha1": None, "state": "missing", "size": 0}
+    # Not found at compute time is not a verdict on the file: the sink leaves the row alone and
+    # the next scan decides (audit 2026-11-07).
+    assert by_id["C"]["state"] == "retry" and by_id["C"]["sha1"] is None
+    assert "gone.jpg" in by_id["C"]["reason"]
     assert reports[-1]["done"] == 3 and reports[-1]["total"] == 3
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
-def test_unreadable_file_is_reported_not_raised(tmp_path):
+def test_unopenable_file_is_reported_for_retry_not_raised(tmp_path):
     p = tmp_path / "locked.jpg"
     p.write_bytes(b"secret")
     p.chmod(0)
@@ -48,7 +51,8 @@ def test_unreadable_file_is_reported_not_raised(tmp_path):
         )["files"]
     finally:
         p.chmod(0o600)
-    assert entry["state"] == "unreadable" and entry["sha1"] is None
+    # An open() error (EACCES here, ESTALE/EIO on a share) is retried, not persisted.
+    assert entry["state"] == "retry" and entry["sha1"] is None
 
 
 def test_registered():

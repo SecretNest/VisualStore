@@ -27,15 +27,42 @@ class NewGroup:
 
 
 def mark_dirty(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:
+    """A repeated mark bumps the generation, so a regroup that peeked the old one leaves it."""
     with conn:
         conn.executemany(
-            "INSERT OR IGNORE INTO regroup_queue (file_id) VALUES (?)", [(f,) for f in file_ids]
+            "INSERT INTO regroup_queue (file_id, gen) VALUES (?, 0)"
+            " ON CONFLICT(file_id) DO UPDATE SET gen = gen + 1",
+            [(f,) for f in file_ids],
         )
 
 
+def mark_all_paired_dirty(conn: sqlite3.Connection) -> int:
+    """Every file that has a pair: used when the grouping distance changes."""
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO regroup_queue (file_id, gen)"
+            " SELECT id, 0 FROM file"
+            " WHERE id IN (SELECT file_a FROM pair UNION SELECT file_b FROM pair)"
+            " ON CONFLICT(file_id) DO UPDATE SET gen = gen + 1"
+        )
+    return cur.rowcount
+
+
+def peek_marks(conn: sqlite3.Connection, limit: int = 5000) -> list[tuple[bytes, int]]:
+    rows = conn.execute("SELECT file_id, gen FROM regroup_queue LIMIT ?", (limit,)).fetchall()
+    return [(bytes(r["file_id"]), int(r["gen"])) for r in rows]
+
+
 def peek_dirty(conn: sqlite3.Connection, limit: int = 5000) -> list[bytes]:
-    rows = conn.execute("SELECT file_id FROM regroup_queue LIMIT ?", (limit,)).fetchall()
-    return [bytes(r["file_id"]) for r in rows]
+    return [f for f, _ in peek_marks(conn, limit)]
+
+
+def clear_marks(conn: sqlite3.Connection, marks: Iterable[tuple[bytes, int]]) -> None:
+    """Remove the marks exactly as peeked; a mark bumped meanwhile stays for the next pass."""
+    with conn:
+        conn.executemany(
+            "DELETE FROM regroup_queue WHERE file_id = ? AND gen = ?", [(f, g) for f, g in marks]
+        )
 
 
 def clear_dirty(conn: sqlite3.Connection, file_ids: Iterable[bytes]) -> None:

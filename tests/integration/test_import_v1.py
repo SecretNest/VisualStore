@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from tests.fixtures.models import install_fake_model
@@ -7,7 +9,7 @@ from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.ids import id_to_str
 from visualstore.jobs.io import IO_HANDLERS
-from visualstore.jobs.io.import_v1 import ImportError_, run_import_v1
+from visualstore.jobs.io.import_v1 import ImportError_, gid, run_import_v1
 from visualstore.jobs.io.scan import run_scan
 from visualstore.jobs.scheduler import IoContext
 from visualstore.profiles import ProfileRegistry
@@ -152,3 +154,41 @@ def test_scan_after_import_queues_vectors_for_imported_files(world):
     queued = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "fingerprint"]
     queued_ids = {f["id"] for j in queued for f in json.loads(j["params"])["files"]}
     assert id_to_str(ids["f_b"].bytes) in queued_ids and result["vector_files_queued"] >= 1
+
+
+def test_interrupted_import_is_undone_and_redone_on_the_retried_attempt(world):
+    """Audit 2026-11-07: a restart mid-import must not leave a profile that can neither be
+    imported into nor completed."""
+    reg, conn, tmp_path, ids = world
+    params = params_for(tmp_path)
+    job = jobs_db.enqueue(conn, type="import_v1", kind="io", params=params)
+    jobs_db.mark_running(conn, job)
+    # First attempt: Folders committed, then the process died.
+    v1 = sqlite3.connect(tmp_path / "v1.db")
+    v1.row_factory = sqlite3.Row
+    v1_folder = v1.execute("SELECT * FROM Folder").fetchone()
+    folders.create_folder(
+        conn,
+        name=v1_folder["Name"],
+        path=params["folder_paths"][v1_folder["Name"]],
+        role="inbox",
+        compare_scope="all",
+        folder_id=gid(v1_folder["Id"]),
+    )
+    jobs_db.record_failure(conn, job, "interrupted by restart", backoff=False)
+    jobs_db.mark_running(conn, job)  # the retried attempt
+    result = run_import_v1(ctx_for(reg, params))
+    assert result["resumed"] == 1
+    assert {f["name"] for f in folders.list_folders(conn)} == {"Archive", "Inbox"}
+    assert result["files"] == 4 and result["folders"] == 2
+
+
+def test_a_finished_import_is_not_undone_by_a_manual_rerun(world):
+    reg, conn, tmp_path, ids = world
+    run_import_v1(ctx_for(reg, params_for(tmp_path)))
+    before = conn.execute("SELECT COUNT(*) FROM file").fetchone()[0]
+    job = jobs_db.enqueue(conn, type="import_v1", kind="io", params=params_for(tmp_path))
+    jobs_db.mark_running(conn, job)  # attempts = 0: a fresh job, not a retry
+    with pytest.raises(ImportError_, match="empty"):
+        run_import_v1(ctx_for(reg, params_for(tmp_path)))
+    assert conn.execute("SELECT COUNT(*) FROM file").fetchone()[0] == before

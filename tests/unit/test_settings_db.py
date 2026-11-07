@@ -92,3 +92,12 @@ def test_milestone_6_index_settings(conn):
     with pytest.raises(ValueError):
         settings.set(conn, "index.quantization", "f32")
     assert settings.get(conn, "maintenance.vacuum_free_ratio") == 0.2
+
+
+def test_float_settings_accept_a_whole_number(conn):
+    """JSON has one number type; the UI sends 1 for 1.0 (audit 2026-11-07)."""
+    settings.set(conn, "grouping.group_distance", 1)
+    assert settings.get(conn, "grouping.group_distance") == 1.0
+    assert type(settings.get(conn, "grouping.group_distance")) is float
+    with pytest.raises(TypeError):
+        settings.set(conn, "grouping.group_distance", True)

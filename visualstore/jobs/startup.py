@@ -38,11 +38,18 @@ def index_is_stale(registry: ProfileRegistry, name: str, model_dir: Path | None 
         meta = inspect(registry.paths(name).index)
     except IndexError_:
         return True
-    return (
+    if (
         meta is None
         or meta["dimensions"] != wanted["index_dim"]
         or meta["dtype"] != wanted["quantization"]
-    )
+    ):
+        return True
+    # Live keys that never reached the index (a match job that failed three times, a restored
+    # vectors.db older than the index) stay invisible otherwise. Pending match jobs explain a
+    # smaller index; nothing else does (audit 2026-11-07).
+    if jobs_db.has_active(conn, "match") or jobs_db.has_active(conn, "build_index"):
+        return False
+    return meta["count"] < fp.live_key_count(vconn, spec.id)
 
 
 def check_indexes(registry: ProfileRegistry, model_dir: Path | None = None) -> int:

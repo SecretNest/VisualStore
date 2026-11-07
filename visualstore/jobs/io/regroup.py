@@ -55,12 +55,17 @@ def _rehub_identical(conn: sqlite3.Connection, scope: set[bytes]) -> None:
     must be rebuilt when a hub was deleted (final review I2)."""
     if not scope:
         return
-    marks = ",".join("?" * len(scope))
-    rows = conn.execute(
-        f"SELECT id, sha1 FROM file WHERE id IN ({marks}) AND sha1 IS NOT NULL"
-        " AND state = 'fingerprinted' ORDER BY created_at, rowid",
-        list(scope),
-    ).fetchall()
+    rows = []
+    for chunk in chunked(sorted(scope)):
+        marks = ",".join("?" * len(chunk))
+        rows.extend(
+            conn.execute(
+                f"SELECT id, sha1, created_at, rowid AS rid FROM file WHERE id IN ({marks})"
+                " AND sha1 IS NOT NULL AND state = 'fingerprinted'",
+                chunk,
+            ).fetchall()
+        )
+    rows.sort(key=lambda r: (r["created_at"], r["rid"]))
     buckets: dict[bytes, list[bytes]] = {}
     for r in rows:
         buckets.setdefault(bytes(r["sha1"]), []).append(bytes(r["id"]))
@@ -111,9 +116,10 @@ def run_regroup(ctx: IoContext) -> dict:
     stats = {"components": 0, "groups": 0, "auto_executed": 0}
     with closing(ctx.open_metadata()) as conn:
         while True:
-            seeds = groups_db.peek_dirty(conn, BATCH)  # cleared once the groups are written
-            if not seeds:
+            marks = groups_db.peek_marks(conn, BATCH)  # cleared once the groups are written
+            if not marks:
                 break
+            seeds = [f for f, _ in marks]
             scope = _closure(conn, seeds, model_id)
             _rehub_identical(conn, scope)
             edges = [
@@ -177,7 +183,7 @@ def run_regroup(ctx: IoContext) -> dict:
                     )
                 )
             created = groups_db.replace_groups(conn, old_groups, new_groups)
-            groups_db.clear_dirty(conn, seeds)
+            groups_db.clear_marks(conn, marks)
             stats["groups"] += len(created)
             for index in to_execute:
                 gid, ng = created[index], new_groups[index]

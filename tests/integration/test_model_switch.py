@@ -135,3 +135,29 @@ def test_switch_cancels_queued_jobs_of_the_old_model(world):
     assert jobs_db.get(conn, old_fp)["state"] == "cancelled"
     assert jobs_db.get(conn, old_match)["state"] == "cancelled"
     assert jobs_db.get(conn, unrelated)["state"] == "queued"
+
+
+def test_switch_requeues_files_that_were_still_new(world):
+    """Audit 2026-11-07: cancelling the old model's fingerprint jobs must not park `new` files
+    until the next scan."""
+    reg, conn, vconn, model_dir, add = world
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    folder = bytes(folders.list_folders(conn)[0]["id"])
+    fresh = files.insert_file(
+        conn, folder_id=folder, directory="", name="fresh.jpg", extension_id=ext, size=1, mtime=1
+    )
+    jobs_db.enqueue(
+        conn,
+        type="fingerprint",
+        kind="compute",
+        priority=50,
+        params={"files": [{"id": id_to_str(fresh)}], "model": {"id": OLD}},
+    )
+    run_model_switch(ctx_for(reg, model_dir, {"model_id": NEW}))
+    queued = [
+        json.loads(j["params"])
+        for j in jobs_db.list_jobs(conn, state="queued")
+        if j["type"] == "fingerprint"
+    ]
+    assert len(queued) == 1 and queued[0]["model"]["id"] == NEW
+    assert [f["id"] for f in queued[0]["files"]] == [id_to_str(fresh)]

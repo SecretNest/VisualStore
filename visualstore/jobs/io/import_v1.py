@@ -187,14 +187,41 @@ def _rollback(conn, extensions_before: dict[bytes, int]) -> None:
             conn.execute("UPDATE extension SET enabled = ? WHERE id = ?", (enabled, ext_id))
 
 
+def _undo_interrupted_attempt(conn, v1, db_path: str) -> bool:
+    """A restart mid-import leaves the Folders of this very v1 database behind (helpers commit
+    as they go). Only when this job is a retried attempt (the scheduler counts the interrupted
+    one) and every Folder in the profile came from this v1 database is it our half-done
+    import: remove them and start over. A finished import re-run by hand has attempts = 0
+    and is refused by the precondition check (audit 2026-11-07)."""
+    retried = conn.execute(
+        "SELECT 1 FROM job WHERE type = 'import_v1' AND state = 'running' AND attempts > 0"
+        " AND json_extract(params, '$.db_path') = ?",
+        (db_path,),
+    ).fetchone()
+    if retried is None:
+        return False
+    existing = {bytes(f["id"]) for f in folders_db.list_folders(conn)}
+    if not existing:
+        return False
+    v1_ids = {gid(f["Id"]) for f in v1.execute("SELECT Id FROM Folder")}
+    if not existing <= v1_ids:
+        return False
+    with conn:
+        conn.execute("DELETE FROM folder")
+        conn.execute("DELETE FROM regroup_queue")
+    return True
+
+
 def run_import_v1(ctx: IoContext) -> dict:
     mapping: dict[str, str] = ctx.params.get("folder_paths") or {}
     with (
         closing(ctx.open_metadata()) as conn,
         closing(_open_v1(ctx.params["db_path"])) as v1,
     ):
+        resumed = _undo_interrupted_attempt(conn, v1, str(ctx.params["db_path"]))
         v1_folders = _check_preconditions(conn, v1, mapping)
         stats = dict.fromkeys(STAT_KEYS, 0)
+        stats["resumed"] = int(resumed)
         extensions_before = {bytes(r["id"]): r["enabled"] for r in folders_db.list_extensions(conn)}
         try:
             folder_ids = _import_folders(conn, v1, v1_folders, mapping, stats)

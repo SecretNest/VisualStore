@@ -6,6 +6,13 @@ PRIORITY_ARCHIVE = 20
 PRIORITY_MAINTENANCE = 0
 
 # Which executor runs a job type. Later milestones add scan, fingerprint, match, ...
+# Queued jobs of these types are the only record of pending index/file work: a cancelled match
+# leaves live keys out of the index, a cancelled build_index leaves vectors unmatched, a cancelled
+# apply_action/bulk_resolve/folder_delete leaves half-applied state. The API refuses to cancel them.
+INTERNAL_JOB_TYPES = frozenset(
+    {"match", "build_index", "apply_action", "bulk_resolve", "folder_delete", "model_switch"}
+)
+
 KIND_OF: dict[str, str] = {
     "backup": "io",
     "ping": "compute",  # pool round-trip check; used by tests and the system status page

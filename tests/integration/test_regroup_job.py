@@ -288,3 +288,25 @@ def test_group_ids_and_open_decisions_survive_a_regroup_that_changes_nothing(wor
         a: "delete",
         b: "keep",
     }
+
+
+def test_a_mark_set_while_the_batch_runs_is_kept_for_the_next_pass(world, monkeypatch):
+    """Audit 2026-11-07: peek/clear by generation, so a judgment made during the regroup is
+    not silently dropped with its mark."""
+    reg, conn, f = world
+    a, b = add(conn, f["arch"], "a.jpg"), add(conn, f["arch2"], "b.jpg")
+    connect(conn, a, b)
+    real = groups.replace_groups
+    fired = []
+
+    def judge_then_replace(*args, **kwargs):
+        if not fired:  # once, in the middle of the first batch
+            fired.append(True)
+            pairs.set_judgment(conn, a, b, "unrelated", "user")
+            groups.mark_dirty(conn, [a, b])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(groups, "replace_groups", judge_then_replace)
+    run_regroup(ctx_for(reg, **AUTO_OFF))
+    assert groups.dirty_count(conn) == 0  # the second pass consumed the new marks
+    assert groups.group_of_file(conn, a) is None and groups.group_of_file(conn, b) is None

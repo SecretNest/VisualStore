@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from visualstore.api.deps import get_profile, get_state, require_auth
+from visualstore.db import groups as groups_db
 from visualstore.db import jobs as jobs_db
 from visualstore.db import settings as settings_db
 from visualstore.jobs.types import PRIORITY_INBOX
@@ -63,7 +64,12 @@ async def put_setting(
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     rebuild = False
-    if key in INDEX_KEYS and settings_db.get(conn, key) != before:
+    changed = settings_db.get(conn, key) != before
+    if key == "grouping.group_distance" and changed:
+        # Groups were formed at the old distance; only a regroup of every paired file applies
+        # the new one (audit 2026-11-07). plan_regroup drains the queue.
+        groups_db.mark_all_paired_dirty(conn)
+    if key in INDEX_KEYS and changed:
         # A rebuild that is already running captured the old settings: queue another one.
         # Only an un-started (queued) rebuild will pick the new value up by itself.
         queued = conn.execute(

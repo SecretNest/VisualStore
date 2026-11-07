@@ -203,6 +203,8 @@ async def dismiss_group(group_id: str, request: Request, name: str = Depends(get
     _group_or_404(conn, gid)
     members = _member_ids(conn, gid)
     for p in _inner_pairs(conn, members):
+        if p["judgment"] == "unrelated":
+            continue  # an explicit "not the same picture" outranks a blanket dismissal
         pairs_db.set_judgment(conn, bytes(p["file_a"]), bytes(p["file_b"]), "related_keep", "user")
     groups_db.set_decisions(conn, gid, dict.fromkeys(members, "keep"))
     groups_db.set_status(conn, gid, "dismissed")

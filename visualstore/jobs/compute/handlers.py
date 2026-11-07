@@ -171,10 +171,12 @@ def fingerprint(params: dict, report: Report) -> dict:
                     reason = f"{type(exc).__name__}: {exc}"[:200]
                     record.update({"state": "unreadable", "reason": reason})
             out.append(record)
-        except FileNotFoundError:
-            out.append({"id": entry["id"], "sha1": None, "state": "missing", "size": 0})
-        except OSError:
-            out.append({"id": entry["id"], "sha1": None, "state": "unreadable", "size": 0})
+        except OSError as exc:
+            # Not a property of the file but of the moment (share not mounted, ESTALE, EIO):
+            # leave the row as it is; the next scan decides whether the file is gone.
+            out.append(
+                {"id": entry["id"], "sha1": None, "state": "retry", "reason": str(exc)[:200]}
+            )
         if i % 8 == 0 or i == len(entries):
             report({"done": i, "total": len(entries), "message": os.path.basename(path)})
     return {"files": out}

@@ -107,7 +107,14 @@ def test_startup_check_enqueues_rebuild_when_index_is_stale(world):
     for j in jobs_db.list_jobs(conn, state="queued"):
         jobs_db.cancel(conn, j["id"])
     fingerprints.set_meta(vconn, "model_id", MODEL)
-    assert check_indexes(reg) == 0
+    # Two live keys, an empty index and no match job to explain it: the keys never reached
+    # the index (a cancelled or exhausted match), so a rebuild is due (audit 2026-11-07).
+    assert check_indexes(reg) == 1
+    for j in jobs_db.list_jobs(conn, state="queued"):
+        jobs_db.cancel(conn, j["id"])
+    pending = jobs_db.enqueue(conn, type="match", kind="compute", params={"model": {"id": MODEL}})
+    assert check_indexes(reg) == 0  # a queued match explains the smaller index
+    jobs_db.cancel(conn, pending)
     reg.paths("a").index.write_bytes(b"corrupt")
     assert check_indexes(reg) == 1
 
@@ -342,3 +349,36 @@ def test_queued_match_jobs_coalesce_until_they_run(world):
         conn, vconn, settings_db.all(conn), reg.paths("a"), model, [{"seq": 3, "vector": vec}], 50
     )
     assert len([j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "match"]) == 1
+
+
+def test_keys_written_during_the_export_are_left_to_match_unindexed(world, monkeypatch):
+    """Audit 2026-11-07: the export is a snapshot up to max_seq; a key written while it runs
+    must neither be padded with a zero vector nor counted as indexed."""
+    import visualstore.jobs.io.rebuild as rebuild_mod
+
+    reg = world
+    conn = reg.conn("a")
+    seed_vectors(reg, n=3)
+    real_iter = fingerprints.iter_vectors
+    late: list[int] = []
+
+    def iter_and_insert(vconn_, model_id, batch=4096, after=-1):
+        for rows in real_iter(vconn_, model_id, batch=2, after=after):
+            yield rows
+            if not late:  # a fingerprint sink writes a vector between two pages
+                fid = bytes([99]) * 16
+                vec = np.ones(512, np.float32) / np.sqrt(512)
+                fingerprints.replace_frames(
+                    vconn_, fid, MODEL, [(0, 0, vec.astype(np.float16).tobytes())]
+                )
+                late.extend(fingerprints.allocate_keys(vconn_, fid, MODEL, [0]))
+
+    monkeypatch.setattr(rebuild_mod.fp, "iter_vectors", iter_and_insert)
+    result = run_rebuild_index(ctx_for(reg))
+    assert result["exported"] == 3 and late
+    export = np.load(reg.paths("a").root / "index.export.npz")
+    assert sorted(int(k) for k in export["keys"]) == [1, 2, 3]
+    assert late[0] not in set(int(k) for k in export["keys"])
+    assert np.all(np.linalg.norm(export["vectors"].astype(np.float32), axis=1) > 0.5)
+    [job] = [j for j in jobs_db.list_jobs(conn, state="queued") if j["type"] == "build_index"]
+    assert json.loads(job["params"])["max_seq"] == 3 < late[0]

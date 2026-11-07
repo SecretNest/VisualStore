@@ -24,21 +24,25 @@ def run_rebuild_index(ctx: IoContext) -> dict:
     spec = get_spec(ctx.settings["model.id"], ctx.model_dir)
     export = ctx.paths.root / EXPORT_NAME
     with closing(ctx.open_vectors()) as vconn, closing(ctx.open_metadata()) as conn:
-        total = fp.vector_count(vconn, spec.id)
+        # The snapshot is "every live key up to max_seq as of now". Keys the fingerprint sink
+        # writes while this export runs have higher seqs and are matched afterwards through
+        # match_unindexed(after=max_seq); they must never enter the export, least of all as
+        # zero vectors (audit 2026-11-07).
+        max_seq = fp.max_live_seq(vconn, spec.id)
+        total = fp.live_key_count(vconn, spec.id)
         vectors = np.empty((total, spec.dim), dtype=np.float16)  # one copy, filled in place
         keys: list[int] = []
         for rows in fp.iter_vectors(vconn, spec.id):
             for r in rows:
-                if len(keys) < total:
-                    vectors[len(keys)] = np.frombuffer(r["vector"], dtype=np.float16)
+                if r["seq"] > max_seq or len(keys) >= total:
+                    break
+                vectors[len(keys)] = np.frombuffer(r["vector"], dtype=np.float16)
                 keys.append(r["seq"])
             ctx.report({"done": len(keys), "total": 0, "message": f"exported {len(keys)} vectors"})
-        if len(keys) != total:  # rows changed under us: trim or extend to what was read
-            vectors = (
-                vectors[: len(keys)]
-                if len(keys) < total
-                else np.concatenate([vectors, np.zeros((len(keys) - total, spec.dim), np.float16)])
-            )
+            if rows[-1]["seq"] >= max_seq:
+                break
+        if len(keys) < total:  # rows retired under us: keep what was read
+            vectors = vectors[: len(keys)]
         priority = int(ctx.params.get("priority", PRIORITY_INBOX))
         options = index_options(ctx.settings, ctx.paths, spec.dim, vector_count=len(keys))
         if not options["pca_dims"]:
@@ -68,7 +72,7 @@ def run_rebuild_index(ctx: IoContext) -> dict:
                 "dim": spec.dim,
                 "model_id": spec.id,
                 "index": options,
-                "max_seq": max(keys),  # keys above this were written after the snapshot
+                "max_seq": max_seq,  # keys above this were written after the snapshot
                 "priority": priority,
             },
         )

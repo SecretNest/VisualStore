@@ -286,3 +286,19 @@ def test_moving_a_file_to_where_it_already_is_is_a_400_not_a_409(client, seeded)
         f"/api/p/a/files/{b}/move", json={"folder_id": id_to_str(s["inbox"]), "directory": ""}
     )
     assert r.status_code == 400 and "already" in r.json()["detail"]
+
+
+def test_dismiss_keeps_an_explicit_unrelated_judgment(client, seeded):
+    s = seeded
+    a, c = id_to_str(s["a"]), id_to_str(s["c"])
+    assert (
+        client.put(f"/api/p/a/pairs/{a}/{c}/judgment", json={"judgment": "unrelated"}).status_code
+        == 200
+    )
+    client.post(f"/api/p/a/groups/{id_to_str(s['gid'])}/dismiss")
+    by_pair = {
+        frozenset((p["file_a"], p["file_b"])): p["judgment"]
+        for p in client.get(f"/api/p/a/groups/{id_to_str(s['gid'])}").json()["pairs"]
+    }
+    assert by_pair[frozenset((a, c))] == "unrelated"
+    assert by_pair[frozenset((a, id_to_str(s["b"])))] == "related_keep"

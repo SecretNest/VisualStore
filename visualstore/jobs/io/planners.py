@@ -71,6 +71,9 @@ def plan_regroup(registry: ProfileRegistry, now: datetime | None = None) -> int:
         conn = registry.conn(name)
         if groups_db.dirty_count(conn) == 0 or jobs_db.has_active(conn, "regroup"):
             continue
+        latest = jobs_db.latest_of_type(conn, "regroup")
+        if latest is not None and latest["state"] == "failed":
+            continue  # the same seeds would fail again every minute; the operator retries it
         jobs_db.enqueue(conn, type="regroup", kind="io", priority=PRIORITY_INBOX)
         enqueued += 1
     return enqueued

@@ -224,7 +224,11 @@ class Scheduler:
             if msg.kind == "progress":
                 jobs_db.set_progress(conn, job_id, msg.payload)
             elif msg.kind == "result":
-                self._finish(conn, job_id, msg.payload, profile)
+                try:
+                    self._finish(conn, job_id, msg.payload, profile)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("finishing compute job %s failed", id_to_str(job_id))
+                    jobs_db.record_failure(conn, job_id, f"finish: {type(exc).__name__}: {exc}")
             else:
                 jobs_db.record_failure(conn, job_id, msg.payload.get("error", "unknown error"))
 
@@ -342,7 +346,11 @@ class Scheduler:
                 jobs_db.record_failure(conn, job_id, f"{type(exc).__name__}: {exc}")
             return
         if self.registry.exists(profile):
-            self._finish(conn, job_id, result, profile)
+            try:
+                self._finish(conn, job_id, result, profile)
+            except Exception as exc:  # noqa: BLE001 - e.g. database locked past the busy timeout
+                log.exception("finishing io job %s (%s) failed", id_to_str(job_id), type_)
+                jobs_db.record_failure(conn, job_id, f"finish: {type(exc).__name__}: {exc}")
 
     # -- planners ----------------------------------------------------------------------
 

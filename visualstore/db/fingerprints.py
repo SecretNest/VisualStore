@@ -33,6 +33,20 @@ def vector_count(vconn: sqlite3.Connection, model_id: str) -> int:
     ).fetchone()[0]
 
 
+def max_live_seq(vconn: sqlite3.Connection, model_id: str) -> int:
+    """Highest live key of a model; -1 when there is none."""
+    row = vconn.execute(
+        "SELECT MAX(seq) FROM index_key WHERE model_id = ? AND deleted = 0", (model_id,)
+    ).fetchone()
+    return -1 if row[0] is None else int(row[0])
+
+
+def live_key_count(vconn: sqlite3.Connection, model_id: str) -> int:
+    return vconn.execute(
+        "SELECT COUNT(*) FROM index_key WHERE model_id = ? AND deleted = 0", (model_id,)
+    ).fetchone()[0]
+
+
 def files_with_vectors(vconn: sqlite3.Connection, model_id: str) -> set[bytes]:
     rows = vconn.execute(
         "SELECT DISTINCT file_id FROM fingerprint WHERE model_id = ?", (model_id,)

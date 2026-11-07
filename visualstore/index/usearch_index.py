@@ -82,7 +82,11 @@ class VectorIndex:
         present = [k for k in keys if k in self._index]
         if present:
             self._index.remove(np.asarray(present, dtype=np.uint64))
-        self._index.add(np.asarray(keys, dtype=np.uint64), arr, copy=True)
+        # Single-threaded on purpose: with usearch 2.26 a multi-threaded add builds a graph
+        # that misses about one exact near-duplicate in a few hundred queries (measured on
+        # 60-3000 clustered vectors, f16 and i8 alike); one thread is exact and ~1.5x slower.
+        # Recall is the product here; the build runs in a compute child anyway (audit 2026-11-07).
+        self._index.add(np.asarray(keys, dtype=np.uint64), arr, copy=True, threads=1)
 
     def remove(self, keys: Sequence[int]) -> int:
         present = [k for k in keys if k in self._index]

@@ -200,3 +200,43 @@ def test_overview_reports_folders_whose_path_is_not_available(client, tmp_path):
     gone.rmdir()  # the share is not mounted any more
     folders = {f["name"]: f for f in client.get("/api/p/a/overview").json()["folders"]}
     assert folders["Here"]["available"] is True and folders["Gone"]["available"] is False
+
+
+def test_internal_job_types_cannot_be_cancelled(client):
+    """Audit 2026-11-07: a queued match is the only record of keys waiting for the index."""
+    from visualstore.db import jobs as jobs_db
+    from visualstore.ids import id_to_str
+
+    setup_profile(client)
+    conn = client.app.state.vs.registry.conn("a")
+    match = jobs_db.enqueue(
+        conn, type="match", kind="compute", priority=1, params={"model": {"id": "m"}, "entries": []}
+    )
+    r = client.post(f"/api/p/a/jobs/{id_to_str(match)}/cancel")
+    assert r.status_code == 409 and "cannot be cancelled" in r.json()["detail"]
+    assert jobs_db.get(conn, match)["state"] == "queued"
+    jobs_db.cancel(conn, match)  # tests tidy up through the db layer, which stays free
+
+
+def test_changing_the_grouping_distance_marks_every_paired_file_dirty(client, tmp_path):
+    from visualstore.db import files, folders, groups, pairs
+
+    setup_profile(client)
+    conn = client.app.state.vs.registry.conn("a")
+    (tmp_path / "lib").mkdir()
+    folder = folders.create_folder(
+        conn, name="L", path=str(tmp_path / "lib"), role="inbox", compare_scope="all"
+    )
+    ext = folders.extension_map(conn)["jpg"]["id"]
+    ids = [
+        files.insert_file(
+            conn, folder_id=folder, directory="", name=f"{i}.jpg", extension_id=ext, size=1, mtime=1
+        )
+        for i in range(3)
+    ]
+    pairs.upsert_vector_pair(conn, ids[0], ids[1], 0.2, "m")
+    r = client.put("/api/p/a/settings/grouping.group_distance", json={"value": 0.25})
+    assert r.status_code == 200
+    assert set(groups.pop_dirty(conn)) == {ids[0], ids[1]}  # the unpaired file is not touched
+    r = client.put("/api/p/a/settings/grouping.group_distance", json={"value": 0.25})
+    assert r.status_code == 200 and groups.dirty_count(conn) == 0  # unchanged: no work

@@ -238,6 +238,18 @@ def _resolve_model(ctx: IoContext) -> dict:
     return job_params(spec, ctx.model_dir)
 
 
+def requeue_new_files(conn, ctx: IoContext, settings: dict) -> int:
+    """Fingerprint jobs for every file still in state `new`, for the model in `settings`."""
+    model = job_params(get_spec(settings["model.id"], ctx.model_dir), ctx.model_dir)
+    made = 0
+    for folder in folders_db.list_folders(conn):
+        if not folder["enabled"]:
+            continue
+        priority = PRIORITY_INBOX if folder["role"] == "inbox" else PRIORITY_ARCHIVE
+        made += _enqueue_fingerprints(conn, folder, priority, ctx, model)
+    return made
+
+
 def _enqueue_fingerprints(conn, folder, priority: int, ctx: IoContext, model: dict) -> int:
     extensions = {bytes(r["id"]): r["media_type"] for r in folders_db.list_extensions(conn)}
     max_pixels = int(ctx.settings["media.max_pixels"])
